@@ -1,4 +1,43 @@
+# -------------------------
+# Environment files
+# -------------------------
 .env
 *.env
-.cache
+myenv/
+
+# -------------------------
+# Python cache and temporary files
+# -------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cache/
 *.cache
+
+# -------------------------
+# CSV tracker
+# -------------------------
+songs.csv
+
+# -------------------------
+# Temporary FFmpeg scripts
+# -------------------------
+FFmpegAudioConvertPP
+FFmpegAudioConvertPPails
+FFmpegNormalizePP
+
+# -------------------------
+# Python virtual environment
+# -------------------------
+venv/
+env/
+.venv/
+
+# -------------------------
+# OS-specific files
+# -------------------------
+.DS_Store
+Thumbs.db
+
+SpotiFlopy/
