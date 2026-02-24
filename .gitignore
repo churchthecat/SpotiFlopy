@@ -41,3 +41,12 @@ env/
 Thumbs.db
 
 SpotiFlopy/
+
+# SpotiFlopy local config
+.spotiflopy_config.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
