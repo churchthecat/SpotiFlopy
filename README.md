@@ -6,15 +6,15 @@ Automatically download all your Spotify Liked Songs as organized, high-quality M
 
 ## ✨ Features
 
-- Fetches all your Spotify Liked Songs using the Spotify API
-- Downloads audio from YouTube using `yt-dlp`
-- Converts to high-quality MP3 (192kbps)
-- Automatically embeds metadata and thumbnail
-- Organizes music by Artist → Album → Track Number
-- Remembers your selected download folder
-- Skips already downloaded tracks
-- Maintains a `songs.csv` tracker
-- Supports local or Cloudflare-based OAuth redirect
+- Fetches all your Spotify Liked Songs using the Spotify API  
+- Downloads audio from YouTube using `yt-dlp`  
+- Converts to high-quality MP3 (192kbps)  
+- Automatically embeds metadata and thumbnail  
+- Organizes music by **Artist → Album → Track Number**  
+- Remembers your selected download folder  
+- Skips already downloaded tracks  
+- Maintains a `songs.csv` tracker  
+- Supports local or Cloudflare-based OAuth redirect  
 
 ---
 
@@ -34,9 +34,9 @@ SpotiFlopy stores your selection in:
 ~/.spotiflopy_config.json
 
 
-The folder will be reused automatically on future runs.
+The folder is reused automatically on future runs.
 
-To change the folder later:
+### Change Folder Later
 
 ```bash
 python main.py --change-folder
@@ -53,8 +53,8 @@ Downloads and converts to MP3 using yt-dlp
 Saves songs in structured folders:
 
 Artist/
-   Album/
-      01 - Track Name.mp3
+ └── Album/
+      └── 01 - Track Name.mp3
 
 Tracks downloads in songs.csv
 
@@ -64,11 +64,11 @@ git clone https://github.com/yourusername/SpotiFlopy.git
 cd SpotiFlopy
 2️⃣ Create Virtual Environment (Recommended)
 
-On Debian/Ubuntu systems:
+Install required system packages (Debian/Ubuntu):
 
 sudo apt install python3-full python3-venv
 
-Create and activate venv:
+Create and activate virtual environment:
 
 python3 -m venv myenv
 source myenv/bin/activate
@@ -82,11 +82,11 @@ Install dependencies:
 pip install -r requirements.txt
 3️⃣ Set Up Spotify API Credentials
 
-You need Spotify API credentials from the Spotify Developer Dashboard.
+You need Spotify API credentials from:
+
+👉 https://developer.spotify.com/dashboard
 
 ✅ Option A — Local Redirect (Standard Method)
-
-Go to: https://developer.spotify.com/dashboard
 
 Create a new app
 
@@ -100,54 +100,51 @@ SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIPY_REDIRECT_URI=http://localhost:8888/callback/
 
-This method runs a temporary local webserver during authentication.
+This runs a temporary local webserver for authentication.
 
-🌍 Option B — Cloudflare Tunnel (Recommended for Remote / Headless Systems)
+🌍 Option B — Cloudflare Tunnel (Remote / Headless Systems)
 
-If you're running this on:
+If running on:
 
-A remote server
+Remote server
 
-A VPS
+VPS
 
-A headless machine
+Headless machine
 
-Behind strict NAT
+Behind NAT
 
-Or want a cleaner production-style redirect
+Or you want a public HTTPS redirect
 
-You can use a Cloudflare-based proxy:
+Use:
 
-https://github.com/1111ij1/spotify-proxy
+👉 https://github.com/1111ij1/spotify-proxy
 
-This allows you to:
+This allows:
 
-Avoid localhost redirects
+Public HTTPS callback
 
-Use a public HTTPS callback
+No local browser requirement
 
-Authenticate remotely
+Remote authentication
 
-Run fully headless
-
-In this case, your .env should look like:
+Your .env would look like:
 
 SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIPY_REDIRECT_URI=https://your-cloudflare-domain/callback/
 
-Make sure the same HTTPS callback URL is added inside your Spotify Developer Dashboard.
+Make sure the same HTTPS callback is added in the Spotify Developer Dashboard.
 
 ▶️ Run the Script
 python main.py
+First Run Will:
 
-First run will:
-
-Open a browser for Spotify authentication
+Open browser for Spotify authentication
 
 Ask you to select a download folder (only once)
 
-After that:
+After That:
 
 No prompts
 
