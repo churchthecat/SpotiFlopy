@@ -1,5 +1,6 @@
 import os
 import csv
+import json
 from pathlib import Path
 from yt_dlp import YoutubeDL
 import spotipy
@@ -20,28 +21,63 @@ sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
 ))
 
 # -------------------------
-# Paths
+# Config
 # -------------------------
-BASE_PATH = Path.home() / "Desktop" / "Songs"
-BASE_PATH.mkdir(parents=True, exist_ok=True)
 
-SONGS_TRACKER = BASE_PATH / "songs.csv"
-if not SONGS_TRACKER.exists():
-    with open(SONGS_TRACKER, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Artist", "Album", "Track", "Track Number"])  # header
+DEFAULT_BASE_PATH = Path.home() / "Desktop" / "Songs"
+CONFIG_FILE = Path.home() / ".spotiflopy_config.json"
+
+
+def load_config():
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE, "r") as f:
+            return json.load(f)
+    return {}
+
+
+def save_config(config: dict):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=4)
+
+
+def choose_download_folder(force_change=False) -> Path:
+    config = load_config()
+
+    # If folder already saved and not forcing change
+    if not force_change and "base_path" in config:
+        saved_path = Path(config["base_path"])
+        print(f"📁 Using saved download folder: {saved_path}")
+        saved_path.mkdir(parents=True, exist_ok=True)
+        return saved_path
+
+    print("\n📁 Download Folder Setup")
+    print(f"Default folder: {DEFAULT_BASE_PATH}")
+
+    user_input = input("Enter custom download folder path (or press Enter to use default): ").strip()
+
+    if user_input:
+        folder = Path(os.path.expanduser(user_input))
+    else:
+        folder = DEFAULT_BASE_PATH
+
+    folder.mkdir(parents=True, exist_ok=True)
+
+    config["base_path"] = str(folder)
+    save_config(config)
+
+    print(f"✅ Downloads will be saved to: {folder}\n")
+    return folder
+
 
 # -------------------------
 # Helpers
 # -------------------------
 
 def sanitize(text: str) -> str:
-    """Remove filesystem-invalid characters."""
     return "".join(c for c in text if c not in r'\/:*?"<>|').strip()
 
 
 def search_youtube(query: str) -> str:
-    """Return first YouTube result URL."""
     with YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
         info = ydl.extract_info(f"ytsearch1:{query}", download=False)
         if not info["entries"]:
@@ -50,7 +86,6 @@ def search_youtube(query: str) -> str:
 
 
 def get_liked_songs():
-    """Return list of (track_name, artist_name, album_name, track_number)."""
     results = sp.current_user_saved_tracks(limit=50)
     songs = []
 
@@ -67,22 +102,22 @@ def get_liked_songs():
     return songs
 
 
-def already_downloaded(artist: str, album: str, track_number: int, track_name: str) -> bool:
-    file_path = BASE_PATH / sanitize(artist) / sanitize(album) / f"{track_number:02d} - {sanitize(track_name)}.mp3"
+def already_downloaded(base_path: Path, artist: str, album: str, track_number: int, track_name: str) -> bool:
+    file_path = base_path / sanitize(artist) / sanitize(album) / f"{track_number:02d} - {sanitize(track_name)}.mp3"
     return file_path.exists()
 
 
-def save_to_csv(artist: str, album: str, track_name: str, track_number: int):
-    with open(SONGS_TRACKER, "a", newline="", encoding="utf-8") as f:
+def save_to_csv(csv_path: Path, artist: str, album: str, track_name: str, track_number: int):
+    with open(csv_path, "a", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([artist, album, track_name, track_number])
 
 
-def download_song(track_name: str, artist: str, album: str, track_number: int):
+def download_song(base_path: Path, track_name: str, artist: str, album: str, track_number: int):
     query = f"{track_name} {artist} official audio"
     youtube_url = search_youtube(query)
 
-    artist_folder = BASE_PATH / sanitize(artist)
+    artist_folder = base_path / sanitize(artist)
     album_folder = artist_folder / sanitize(album)
     album_folder.mkdir(parents=True, exist_ok=True)
 
@@ -98,17 +133,13 @@ def download_song(track_name: str, artist: str, album: str, track_number: int):
                 "preferredcodec": "mp3",
                 "preferredquality": "192",
             },
-            {
-                "key": "FFmpegMetadata"
-            },
-            {
-                "key": "EmbedThumbnail"
-            }
+            {"key": "FFmpegMetadata"},
+            {"key": "EmbedThumbnail"}
         ],
         "quiet": False,
         "addmetadata": True,
         "embedthumbnail": True,
-        "ffmpeg_postprocessor_args": ["-af", "loudnorm"]  # normalize volume
+        "ffmpeg_postprocessor_args": ["-af", "loudnorm"]
     }
 
     with YoutubeDL(ydl_opts) as ydl:
@@ -120,18 +151,27 @@ def download_song(track_name: str, artist: str, album: str, track_number: int):
 # -------------------------
 
 def main():
+    change = "--change-folder" in os.sys.argv
+    base_path = choose_download_folder(force_change=change)
+
+    songs_tracker = base_path / "songs.csv"
+    if not songs_tracker.exists():
+        with open(songs_tracker, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Artist", "Album", "Track", "Track Number"])
+
     liked_songs = get_liked_songs()
     print(f"\nFound {len(liked_songs)} liked songs.\n")
 
     for track_name, artist, album, track_number in liked_songs:
         try:
-            if already_downloaded(artist, album, track_number, track_name):
-                print(f"Skipping (already exists): {track_number:02d} - {track_name} - {artist}")
+            if already_downloaded(base_path, artist, album, track_number, track_name):
+                print(f"Skipping: {track_number:02d} - {track_name} - {artist}")
                 continue
 
             print(f"Downloading: {track_number:02d} - {track_name} - {artist}")
-            download_song(track_name, artist, album, track_number)
-            save_to_csv(artist, album, track_name, track_number)
+            download_song(base_path, track_name, artist, album, track_number)
+            save_to_csv(songs_tracker, artist, album, track_name, track_number)
 
         except Exception as e:
             print(f"Failed: {track_number:02d} - {track_name} - {artist} -> {e}")
