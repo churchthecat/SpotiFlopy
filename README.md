@@ -20,7 +20,7 @@ Automatically download all your Spotify Liked Songs as organized, high-quality M
 
 ## 📁 Download Location
 
-By default, songs are saved to:
+Default location:
 
 
 ~/Desktop/Songs
@@ -28,13 +28,13 @@ By default, songs are saved to:
 
 On first run, you may choose a custom folder.
 
-SpotiFlopy stores your selection in:
+Configuration is stored in:
 
 
 ~/.spotiflopy_config.json
 
 
-The folder is reused automatically on future runs.
+The folder is automatically reused on future runs.
 
 ### Change Folder Later
 
@@ -44,7 +44,7 @@ python main.py --change-folder
 
 Uses the Spotify API to fetch your Liked Songs
 
-Checks if songs are already downloaded
+Checks if songs already exist locally
 
 Searches YouTube for the official audio
 
@@ -59,12 +59,12 @@ Artist/
 Tracks downloads in songs.csv
 
 🔧 Installation
-1️⃣ Clone the Repository
+1️⃣ Clone Repository
 git clone https://github.com/yourusername/SpotiFlopy.git
 cd SpotiFlopy
 2️⃣ Create Virtual Environment (Recommended)
 
-Install required system packages (Debian/Ubuntu):
+Install system dependencies (Debian/Ubuntu):
 
 sudo apt install python3-full python3-venv
 
@@ -77,56 +77,43 @@ Upgrade pip:
 
 python -m pip install --upgrade pip
 
-Install dependencies:
+Install project dependencies:
 
 pip install -r requirements.txt
-3️⃣ Set Up Spotify API Credentials
+3️⃣ Spotify API Setup
 
-You need Spotify API credentials from:
+Create credentials at:
 
 👉 https://developer.spotify.com/dashboard
 
-✅ Option A — Local Redirect (Standard Method)
+Option A — Local Redirect (Standard)
 
 Create a new app
 
-Add this Redirect URI:
+Add redirect URI:
 
 http://localhost:8888/callback/
 
-Create a .env file in the project root:
+Create a .env file in project root:
 
 SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIPY_REDIRECT_URI=http://localhost:8888/callback/
+Option B — Cloudflare / Remote Setup
 
-This runs a temporary local webserver for authentication.
-
-🌍 Option B — Cloudflare Tunnel (Remote / Headless Systems)
-
-If running on:
+For:
 
 Remote server
 
 VPS
 
-Headless machine
+Headless system
 
-Behind NAT
-
-Or you want a public HTTPS redirect
+Public HTTPS callback
 
 Use:
 
 👉 https://github.com/1111ij1/spotify-proxy
-
-This allows:
-
-Public HTTPS callback
-
-No local browser requirement
-
-Remote authentication
 
 Your .env would look like:
 
@@ -134,17 +121,17 @@ SPOTIPY_CLIENT_ID=your_spotify_client_id
 SPOTIPY_CLIENT_SECRET=your_spotify_client_secret
 SPOTIPY_REDIRECT_URI=https://your-cloudflare-domain/callback/
 
-Make sure the same HTTPS callback is added in the Spotify Developer Dashboard.
+Make sure the same redirect URL is added in the Spotify Developer Dashboard.
 
-▶️ Run the Script
+▶️ Run
 python main.py
-First Run Will:
+First Run
 
-Open browser for Spotify authentication
+Opens browser for Spotify authentication
 
-Ask you to select a download folder (only once)
+Asks for download folder (once)
 
-After That:
+After That
 
 No prompts
 
@@ -152,7 +139,7 @@ Automatic syncing
 
 Only new liked songs are downloaded
 
-🔄 Change Download Folder Later
+🔄 Change Folder Later
 python main.py --change-folder
 📦 Dependencies
 
@@ -164,7 +151,4 @@ python-dotenv
 
 🚀 About
 
-Automatically download all your liked songs on Spotify — without paying a dime.
-
-
----
+Automatically download your Spotify liked songs — without paying a dime.
