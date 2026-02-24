@@ -175,14 +175,6 @@ python main.py
 
 ---
 
-## 🔄 Change Folder Later
-
-```bash
-python main.py --change-folder
-```
-
----
-
 ## 📦 Dependencies
 
 - spotipy  
