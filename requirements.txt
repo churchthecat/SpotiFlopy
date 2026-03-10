@@ -1,4 +1,6 @@
-spotipy
 yt-dlp
+spotipy
 python-dotenv
-secretstorage
+browser-cookie3
+requests
+mutagen

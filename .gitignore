@@ -51,3 +51,12 @@ Thumbs.db
 
 main.py.bak
 
+.env
+.env.*
+.cache/
+.spotiflofy_token_cache
+.spotiflofy_config.json
+cookies.txt
+__pycache__/
+*.pyc
+songs.csv

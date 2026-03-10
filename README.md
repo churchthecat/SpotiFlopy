@@ -1,159 +1,397 @@
-# SpotiFlopy 🎵
+# SpotiFlopy
 
-Automatically download your **Spotify Liked Songs** as organized MP3 files.
+Automatically mirror your Spotify liked songs locally.
 
-SpotiFlopy syncs your liked songs, finds the best match on YouTube, downloads the audio, and organizes everything into a clean music library.
+SpotiFlopy syncs your Spotify library and downloads the audio from YouTube using **Spotipy** and **yt-dlp**.
 
----
+Features
 
-# Features
-
-• Sync Spotify liked songs
-• Download audio using yt-dlp
-• Convert to MP3 (192kbps)
-• Embed metadata and thumbnails
-• Organize files by Artist → Album → Track
-• Skip already downloaded songs
-• Maintain songs.csv tracker
-• Parallel downloads for faster syncing
-• Optional YouTube cookie support
-• Works on desktops and servers
-
----
-
-# Folder Structure
-
-Example output:
-
-Artist/
-Album/
-01 - Track Name.mp3
-
-Tracker file:
-
-songs.csv
-
-Example:
-
-Artist,Album,Track,Track Number
-Rancid,...And Out Come The Wolves,Roots Radical,03
+* Sync Spotify liked songs
+* Automatic download from YouTube
+* Artist / Album folder structure
+* Embedded album artwork
+* Proper ID3 tags
+* Duplicate tracking
+* Cron automation
+* Works on Linux servers and desktops
+* Supports headless environments
 
 ---
 
 # Installation
 
-Clone the repo:
+Clone the repository
 
+```
 git clone https://github.com/churchthecat/SpotiFlopy.git
 cd SpotiFlopy
+```
 
-Install system packages:
+Create a virtual environment
 
-sudo apt install python3-full python3-venv ffmpeg
-
-Create environment:
-
+```
 python3 -m venv myenv
 source myenv/bin/activate
+```
 
-Install dependencies:
+Install dependencies
 
+```
 pip install -r requirements.txt
+```
+
+Install ffmpeg (required for audio conversion)
+
+```
+sudo apt update
+sudo apt install ffmpeg
+```
 
 ---
 
 # Spotify API Setup
 
-Create an app:
+Create a Spotify application:
 
 https://developer.spotify.com/dashboard
 
+Create a new app and copy the credentials.
+
+Add the redirect URI:
+
+```
+http://localhost:8888/callback
+```
+
 ---
 
-# Option A — Local Authentication
+# Environment Configuration
 
-Redirect URI:
+Create a `.env` file in the project root.
 
-http://localhost:8888/callback/
-
-Create `.env`:
-
+```
 SPOTIPY_CLIENT_ID=your_client_id
 SPOTIPY_CLIENT_SECRET=your_client_secret
-SPOTIPY_REDIRECT_URI=http://localhost:8888/callback/
+SPOTIPY_REDIRECT_URI=http://localhost:8888/callback
+```
 
 ---
 
-# Option B — Cloudflare Tunnel (Headless / Remote Servers)
+# Run SpotiFlopy
 
-If running SpotiFlopy on:
+```
+python main.py
+```
 
-• VPS
-• headless server
-• remote machine
-• strict NAT network
+On first run you will be asked for the download folder.
 
-You can use a **Cloudflare proxy**.
+Example:
 
-Example project:
+```
+Download folder [/home/user/Music/SpotiFlopy]:
+```
+
+Press enter to accept the default.
+
+---
+
+# Example Download Structure
+
+```
+Music/
+ └── SpotiFlopy/
+     ├── Artist
+     │   ├── Album
+     │   │   ├── 01 - Track.mp3
+     │   │   ├── 02 - Track.mp3
+     │   │   └── 03 - Track.mp3
+```
+
+Each file includes:
+
+* title
+* artist
+* album
+* track number
+* album artwork
+
+---
+
+# Automation (Cron)
+
+You can automatically sync your Spotify library.
+
+Edit your cron jobs
+
+```
+crontab -e
+```
+
+Run twice per day
+
+```
+0 2,14 * * * /home/user/SpotiFlopy/myenv/bin/python /home/user/SpotiFlopy/main.py >> /home/user/spotiflopy.log 2>&1
+```
+
+---
+
+# Cookies for YouTube (Avoid Bot Detection)
+
+YouTube may require browser cookies.
+
+SpotiFlopy automatically tries to use cookies from:
+
+* Chrome
+* Chromium
+* Brave
+* Firefox
+
+If none are found, install a browser or export cookies manually.
+
+---
+
+# 🌍 Option B — Cloudflare Tunnel (Headless / Remote Servers)
+
+If you run SpotiFlopy on:
+
+* a **remote server**
+* a **VPS**
+* a **headless machine**
+* behind **strict NAT**
+* or want a cleaner production-style OAuth redirect
+
+you can use a **Cloudflare-based proxy** instead of localhost authentication.
+
+Example proxy project:
 
 https://github.com/1111ij1/spotify-proxy
 
-This provides:
+This allows you to:
 
-• public HTTPS callback
-• headless authentication
-• remote login support
+* Avoid localhost redirects
+* Use a **public HTTPS callback**
+* Authenticate remotely
+* Run fully headless
+* Use SpotiFlopy on servers without a browser
 
-Example `.env`:
+Example `.env` configuration:
 
+```
 SPOTIPY_CLIENT_ID=your_client_id
 SPOTIPY_CLIENT_SECRET=your_client_secret
 SPOTIPY_REDIRECT_URI=https://your-domain.com/callback
-
----
-
-# YouTube Cookie Setup
-
-Optional but recommended.
-
-Export cookies:
-
-yt-dlp --cookies-from-browser chromium --cookies cookies.txt https://youtube.com
-
----
-
-# Run the Script
-
-python main.py
-
-First run will authenticate Spotify and begin syncing.
-
-Future runs download **only new songs**.
-
----
-
-# Automation
-
-Example cron job (twice per day):
-
-0 2,14 * * * /home/user/SpotiFlopy/myenv/bin/python /home/user/SpotiFlopy/main.py >> /home/user/spotiflopy.log 2>&1
+```
 
 ---
 
 # Security Notes
 
-Never commit:
+The following files should **never be committed to GitHub**:
 
+```
 .env
+.spotiflofy_token_cache
+.spotiflofy_config.json
 cookies.txt
-.spotiflopy_token_cache
-.spotiflopy_config.json
-Songs/
-myenv/
+```
+
+These are already excluded in `.gitignore`.
+
+---
+
+# Updating
+
+Pull latest updates
+
+```
+git pull origin main
+```
+
+Update dependencies
+
+```
+pip install -r requirements.txt
+```
+
+
+---
+
+# Running as a Background Service (Recommended)
+
+Instead of cron, you can run SpotiFlopy as a **systemd service**.
+This is more reliable and easier to monitor.
+
+Create a service file:
+
+```id="svc1"
+sudo nano /etc/systemd/system/spotiflopy.service
+```
+
+Paste:
+
+```id="svc2"
+[Unit]
+Description=SpotiFlopy Spotify Sync
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+WorkingDirectory=/home/YOUR_USERNAME/SpotiFlopy
+ExecStart=/home/YOUR_USERNAME/SpotiFlopy/myenv/bin/python main.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Replace `YOUR_USERNAME` with your Linux username.
+
+Enable the service:
+
+```id="svc3"
+sudo systemctl daemon-reload
+sudo systemctl enable spotiflopy
+```
+
+Start it:
+
+```id="svc4"
+sudo systemctl start spotiflopy
+```
+
+Check status:
+
+```id="svc5"
+systemctl status spotiflopy
+```
+
+---
+
+# View Logs
+
+View live logs
+
+```id="log1"
+journalctl -u spotiflopy -f
+```
+
+This shows downloads and errors in real time.
+
+---
+
+# Automatic Updates
+
+You can automatically update the project from GitHub.
+
+Pull latest changes:
+
+```id="git1"
+cd ~/SpotiFlopy
+git pull origin main
+pip install -r requirements.txt
+```
+
+---
+
+# Updating Dependencies
+
+Keep yt-dlp updated frequently because YouTube changes often.
+
+```id="upd1"
+pip install -U yt-dlp
+```
+
+---
+
+# Troubleshooting
+
+### YouTube "Sign in to confirm you're not a bot"
+
+Make sure a browser is installed so cookies can be used.
+
+Supported browsers:
+
+* Chrome
+* Chromium
+* Brave
+* Firefox
+
+Install Chromium for servers:
+
+```id="tr1"
+sudo apt install chromium-browser
+```
+
+---
+
+### Spotify authentication loop
+
+Delete the token cache:
+
+```id="tr2"
+rm .spotiflopy_token_cache
+```
+
+Then run again.
+
+---
+
+# Roadmap
+
+Possible future improvements:
+
+* Playlist syncing
+* Automatic metadata correction
+* FLAC downloads
+* MusicBrainz matching
+* Download progress bars
+* Web UI
+
+---
+
+# Contributing
+
+Pull requests are welcome.
+
+If you find bugs or have improvements, feel free to open an issue or submit a PR.
+
+---
+
+# Project Structure
+
+```id="tree"
+SpotiFlopy/
+ ├── main.py
+ ├── requirements.txt
+ ├── README.md
+ ├── .env
+ ├── songs.csv
+ └── myenv/
+```
+
+---
+
+# Author
+
+Created for personal Spotify library mirroring and automation.
 
 ---
 
 # License
 
-MIT
+MIT License
+
+
+---
+
+# License
+
+MIT License
+
+---
+
+# Disclaimer
+
+SpotiFlopy downloads audio from YouTube for personal use.
+Ensure you comply with local copyright laws and the terms of service of the platforms you use.
