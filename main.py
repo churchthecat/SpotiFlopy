@@ -1,154 +1,272 @@
 import os
-import csv
 import json
+import shutil
+import socket
+import re
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+
 from yt_dlp import YoutubeDL
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import CacheFileHandler
 from dotenv import load_dotenv
 
+
 # -------------------------
-# Spotify Auth
+# CONFIG
 # -------------------------
+
+DEFAULT_BASE_PATH = Path.home() / "Music" / "Spotiflopy"
+CONFIG_FILE = Path.home() / ".spotiflopy_config.json"
+TOKEN_CACHE = Path.home() / ".spotiflopy_token_cache"
+
+MAX_WORKERS = 4
 scope = "user-library-read"
 
-load_dotenv()
-sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-    client_id=os.getenv("SPOTIPY_CLIENT_ID"),
-    client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
-    redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI"),
-    scope=scope
-))
+
+# -------------------------
+# Dependency Check
+# -------------------------
+
+def check_dependencies():
+
+    if not shutil.which("ffmpeg"):
+        print("FFmpeg missing")
+        print("Install with: sudo apt install ffmpeg")
+        exit()
+
+    try:
+        socket.create_connection(("youtube.com", 80), timeout=5)
+    except OSError:
+        print("No internet connection")
+        exit()
+
 
 # -------------------------
 # Config
 # -------------------------
 
-DEFAULT_BASE_PATH = Path.home() / "Desktop" / "Songs"
-CONFIG_FILE = Path.home() / ".spotiflopy_config.json"
-
-
 def load_config():
+
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+        return json.loads(CONFIG_FILE.read_text())
+
     return {}
 
 
-def save_config(config: dict):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=4)
+def save_config(config):
+    CONFIG_FILE.write_text(json.dumps(config, indent=4))
 
 
-def choose_download_folder(force_change=False) -> Path:
+def choose_download_folder():
+
     config = load_config()
 
-    # If folder already saved and not forcing change
-    if not force_change and "base_path" in config:
-        saved_path = Path(config["base_path"])
-        print(f"📁 Using saved download folder: {saved_path}")
-        saved_path.mkdir(parents=True, exist_ok=True)
-        return saved_path
+    if "base_path" in config:
+        p = Path(config["base_path"])
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
-    print("\n📁 Download Folder Setup")
-    print(f"Default folder: {DEFAULT_BASE_PATH}")
+    folder = input("Download folder (enter for ~/Music/Spotiflopy): ")
 
-    user_input = input("Enter custom download folder path (or press Enter to use default): ").strip()
-
-    if user_input:
-        folder = Path(os.path.expanduser(user_input))
-    else:
+    if not folder:
         folder = DEFAULT_BASE_PATH
 
+    folder = Path(folder)
     folder.mkdir(parents=True, exist_ok=True)
 
     config["base_path"] = str(folder)
     save_config(config)
 
-    print(f"✅ Downloads will be saved to: {folder}\n")
     return folder
+
+
+# -------------------------
+# Spotify
+# -------------------------
+
+def spotify_client():
+
+    load_dotenv()
+
+    auth = SpotifyOAuth(
+        client_id=os.getenv("SPOTIPY_CLIENT_ID"),
+        client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"),
+        redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI"),
+        scope=scope,
+        cache_handler=CacheFileHandler(cache_path=str(TOKEN_CACHE)),
+        open_browser=True
+    )
+
+    return spotipy.Spotify(auth_manager=auth)
 
 
 # -------------------------
 # Helpers
 # -------------------------
 
-def sanitize(text: str) -> str:
-    """
-    Safe filename sanitizer.
-    - Replaces slashes with dash instead of removing them
-    - Removes invalid filesystem characters
-    - Prevents accidental folder creation from '/'
-    """
+def sanitize(text):
 
-    if not text:
-        return "unknown"
-
-    # Replace forward and backward slashes with dash
     text = text.replace("/", " - ")
     text = text.replace("\\", " - ")
 
-    # Remove other invalid characters
-    invalid_chars = r':*?"<>|'
-    text = "".join(c for c in text if c not in invalid_chars)
-
-    # Clean extra spaces/dashes
-    text = " ".join(text.split())
-    text = text.strip(" -")
+    text = re.sub(r'[<>:"|?*]', '', text)
 
     return text.strip()
 
 
-def search_youtube(query: str) -> str:
-    with YoutubeDL({"quiet": True, "skip_download": True}) as ydl:
-        info = ydl.extract_info(f"ytsearch1:{query}", download=False)
-        if not info["entries"]:
-            raise ValueError(f"No results for {query}")
-        return f"https://www.youtube.com/watch?v={info['entries'][0]['id']}"
+def clean_title(text):
+
+    text = text.lower()
+
+    text = re.sub(r"\(.*?\)", "", text)
+
+    banned = [
+        "live",
+        "cover",
+        "remix",
+        "karaoke",
+        "instrumental",
+        "lyrics",
+        "tribute"
+    ]
+
+    for b in banned:
+        if b in text:
+            return None
+
+    return text
 
 
-def get_liked_songs():
+# -------------------------
+# YouTube Search
+# -------------------------
+
+def find_best_youtube(track, artist, duration):
+
+    query = f"{artist} {track}"
+
+    with YoutubeDL({"quiet": True}) as ydl:
+
+        info = ydl.extract_info(
+            f"ytsearch10:{query}",
+            download=False
+        )
+
+    best_video = None
+    best_score = 999999
+
+    for entry in info["entries"]:
+
+        if not entry:
+            continue
+
+        title = clean_title(entry["title"])
+
+        if not title:
+            continue
+
+        yt_duration = entry.get("duration")
+
+        if not yt_duration:
+            continue
+
+        diff = abs(yt_duration - duration)
+
+        if diff < best_score:
+            best_score = diff
+            best_video = entry["id"]
+
+    if best_video:
+        return f"https://www.youtube.com/watch?v={best_video}"
+
+    raise Exception("No suitable YouTube match")
+
+
+# -------------------------
+# Spotify Tracks
+# -------------------------
+
+def get_liked_songs(sp):
+
     results = sp.current_user_saved_tracks(limit=50)
+
     songs = []
 
     while results:
+
         for item in results["items"]:
+
             track = item["track"]
-            song = track["name"]
-            artist = track["artists"][0]["name"]
-            album = track["album"]["name"]
-            track_number = track["track_number"]
-            songs.append((song, artist, album, track_number))
+
+            songs.append(
+                (
+                    track["name"],
+                    track["artists"][0]["name"],
+                    track["album"]["name"],
+                    track["track_number"],
+                    int(track["duration_ms"] / 1000)
+                )
+            )
+
         results = sp.next(results) if results["next"] else None
 
     return songs
 
 
-def already_downloaded(base_path: Path, artist: str, album: str, track_number: int, track_name: str) -> bool:
-    file_path = base_path / sanitize(artist) / sanitize(album) / f"{track_number:02d} - {sanitize(track_name)}.mp3"
-    return file_path.exists()
+# -------------------------
+# File Check
+# -------------------------
+
+def already_downloaded(base, artist, album, number, track):
+
+    path = base / sanitize(artist) / sanitize(album) / f"{number:02d} - {sanitize(track)}.mp3"
+
+    return path.exists()
 
 
-def save_to_csv(csv_path: Path, artist: str, album: str, track_name: str, track_number: int):
-    with open(csv_path, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow([artist, album, track_name, track_number])
+# -------------------------
+# Download
+# -------------------------
 
+def download_song(base, track, artist, album, number, duration):
 
-def download_song(base_path: Path, track_name: str, artist: str, album: str, track_number: int):
-    query = f"{track_name} {artist} official audio"
-    youtube_url = search_youtube(query)
-
-    artist_folder = base_path / sanitize(artist)
+    artist_folder = base / sanitize(artist)
     album_folder = artist_folder / sanitize(album)
+
     album_folder.mkdir(parents=True, exist_ok=True)
 
-    output_template = str(album_folder / f"{track_number:02d} - {sanitize(track_name)}.%(ext)s")
+    output_template = str(
+        album_folder / f"{number:02d} - {sanitize(track)}.%(ext)s"
+    )
+
+    youtube_url = find_best_youtube(track, artist, duration)
 
     ydl_opts = {
+
         "format": "bestaudio/best",
+
         "outtmpl": output_template,
-        "noplaylist": True,
+
+        "cookiefile": "cookies.txt",
+
+        "retries": 10,
+        "fragment_retries": 10,
+
+        "sleep_interval": 2,
+        "max_sleep_interval": 5,
+
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0"
+        },
+
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android"]
+            }
+        },
+
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -158,14 +276,38 @@ def download_song(base_path: Path, track_name: str, artist: str, album: str, tra
             {"key": "FFmpegMetadata"},
             {"key": "EmbedThumbnail"}
         ],
-        "quiet": False,
+
         "addmetadata": True,
         "embedthumbnail": True,
-        "ffmpeg_postprocessor_args": ["-af", "loudnorm"]
+        "quiet": True
     }
 
     with YoutubeDL(ydl_opts) as ydl:
         ydl.download([youtube_url])
+
+    print(f"Downloaded: {track} - {artist}")
+
+
+# -------------------------
+# Worker
+# -------------------------
+
+def worker(base, song):
+
+    track, artist, album, number, duration = song
+
+    if already_downloaded(base, artist, album, number, track):
+
+        print(f"Skipping: {track} - {artist}")
+        return
+
+    try:
+
+        download_song(base, track, artist, album, number, duration)
+
+    except Exception as e:
+
+        print(f"FAILED: {track} - {artist} -> {e}")
 
 
 # -------------------------
@@ -173,30 +315,21 @@ def download_song(base_path: Path, track_name: str, artist: str, album: str, tra
 # -------------------------
 
 def main():
-    change = "--change-folder" in os.sys.argv
-    base_path = choose_download_folder(force_change=change)
 
-    songs_tracker = base_path / "songs.csv"
-    if not songs_tracker.exists():
-        with open(songs_tracker, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["Artist", "Album", "Track", "Track Number"])
+    check_dependencies()
 
-    liked_songs = get_liked_songs()
-    print(f"\nFound {len(liked_songs)} liked songs.\n")
+    base = choose_download_folder()
 
-    for track_name, artist, album, track_number in liked_songs:
-        try:
-            if already_downloaded(base_path, artist, album, track_number, track_name):
-                print(f"Skipping: {track_number:02d} - {track_name} - {artist}")
-                continue
+    sp = spotify_client()
 
-            print(f"Downloading: {track_number:02d} - {track_name} - {artist}")
-            download_song(base_path, track_name, artist, album, track_number)
-            save_to_csv(songs_tracker, artist, album, track_name, track_number)
+    songs = get_liked_songs(sp)
 
-        except Exception as e:
-            print(f"Failed: {track_number:02d} - {track_name} - {artist} -> {e}")
+    print(f"\nFound {len(songs)} liked songs\n")
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+
+        for song in songs:
+            executor.submit(worker, base, song)
 
 
 if __name__ == "__main__":

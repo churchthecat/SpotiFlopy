@@ -44,9 +44,36 @@ SpotiFlopy/
 
 # SpotiFlopy local config
 .spotiflopy_config.json
+main.py.bak
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+myenv/
+
+# Secrets
+.env
+cookies.txt
+
+# App caches
+.spotiflopy_token_cache
+.spotiflopy_config.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
