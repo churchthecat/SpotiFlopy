@@ -1,79 +1,42 @@
-# -------------------------
-# Environment files
-# -------------------------
-.env
-*.env
-myenv/
-
-# -------------------------
-# Python cache and temporary files
-# -------------------------
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.cache/
-*.cache
-
-# -------------------------
-# CSV tracker
-# -------------------------
-songs.csv
-
-# -------------------------
-# Temporary FFmpeg scripts
-# -------------------------
-FFmpegAudioConvertPP
-FFmpegAudioConvertPPails
-FFmpegNormalizePP
-
-# -------------------------
-# Python virtual environment
-# -------------------------
-venv/
-env/
-.venv/
-
-# -------------------------
-# OS-specific files
-# -------------------------
-.DS_Store
-Thumbs.db
-
-SpotiFlopy/
-
-# SpotiFlopy local config
-.spotiflopy_config.json
-main.py.bak
-
 # Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
 
-# Python
-__pycache__/
+**pycache**/
 *.pyc
 *.pyo
 *.pyd
 
 # Virtual environments
-venv/
-env/
+
 myenv/
+venv/
+.env/
 
 # Secrets
+
 .env
 cookies.txt
 
-# App caches
+# Spotify token cache
+
 .spotiflopy_token_cache
+
+# Local config
+
 .spotiflopy_config.json
 
-# OS
+# Downloaded music
+
+Songs/
+
+# Logs
+
+*.log
+
+# OS files
+
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
+
+main.py.bak
+
