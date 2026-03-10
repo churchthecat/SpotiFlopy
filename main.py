@@ -14,153 +14,176 @@ CSV_FILE = "songs.csv"
 
 load_dotenv()
 
+
+# -----------------------------
+# Detect browser for cookies
+# -----------------------------
+def detect_browser():
+    home = Path.home()
+
+    paths = {
+        "chrome": home / ".config/google-chrome",
+        "chromium": home / ".config/chromium",
+        "brave": home / ".config/BraveSoftware",
+        "firefox": home / ".mozilla/firefox",
+    }
+
+    for browser, path in paths.items():
+        if path.exists():
+            print(f"Using browser cookies from: {browser}")
+            return (browser,)
+
+    print("No browser cookies found. Downloads may fail.")
+    return None
+
+
+BROWSER_COOKIES = detect_browser()
+
+
+# -----------------------------
+# Spotify
+# -----------------------------
 def get_spotify_client():
-return spotipy.Spotify(
-auth_manager=SpotifyOAuth(
-scope="user-library-read",
-cache_path=".spotiflopy_token_cache",
-)
-)
+    auth_manager = SpotifyOAuth(
+        scope="user-library-read",
+        cache_path=".spotiflopy_token_cache"
+    )
 
+    return spotipy.Spotify(auth_manager=auth_manager)
+
+
+# -----------------------------
+# Config
+# -----------------------------
 def load_config():
-if CONFIG_FILE.exists():
-with open(CONFIG_FILE) as f:
-return json.load(f)
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE) as f:
+            return json.load(f)
 
-```
-folder = input("Enter download folder (default: ~/Desktop/Songs): ").strip()
+    default_folder = str(Path.home() / "Desktop" / "Songs")
 
-if not folder:
-    folder = str(Path.home() / "Desktop" / "Songs")
+    folder = input(f"Download folder [{default_folder}]: ").strip()
 
-config = {"download_folder": folder}
+    if not folder:
+        folder = default_folder
 
-with open(CONFIG_FILE, "w") as f:
-    json.dump(config, f)
+    config = {"download_folder": folder}
 
-return config
-```
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f)
 
+    return config
+
+
+# -----------------------------
+# Get Spotify liked tracks
+# -----------------------------
+def get_saved_tracks(sp):
+    songs = []
+
+    results = sp.current_user_saved_tracks(limit=50)
+
+    while results:
+
+        for item in results["items"]:
+            track = item["track"]
+
+            artist = track["artists"][0]["name"]
+            title = track["name"]
+
+            songs.append(f"{artist} - {title}")
+
+        if results["next"]:
+            results = sp.next(results)
+        else:
+            results = None
+
+    return songs
+
+
+# -----------------------------
+# Track downloaded songs
+# -----------------------------
 def load_downloaded():
-downloaded = set()
+    if not Path(CSV_FILE).exists():
+        return set()
 
-```
-if os.path.exists(CSV_FILE):
-    with open(CSV_FILE, newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            downloaded.add((row["Artist"], row["Track"]))
+    with open(CSV_FILE) as f:
+        return set(row[0] for row in csv.reader(f))
 
-return downloaded
-```
 
-def save_download(artist, album, track, track_number):
-file_exists = os.path.exists(CSV_FILE)
+def save_downloaded(song):
+    with open(CSV_FILE, "a") as f:
+        writer = csv.writer(f)
+        writer.writerow([song])
 
-```
-with open(CSV_FILE, "a", newline="", encoding="utf-8") as f:
-    writer = csv.writer(f)
 
-    if not file_exists:
-        writer.writerow(["Artist", "Album", "Track", "Track Number"])
+# -----------------------------
+# Download track
+# -----------------------------
+def download_track(song, folder, downloaded):
 
-    writer.writerow([artist, album, track, track_number])
-```
+    if song in downloaded:
+        return
 
-def get_liked_songs(sp):
-results = []
-offset = 0
+    search = f"ytsearch1:{song}"
 
-```
-while True:
-    data = sp.current_user_saved_tracks(limit=50, offset=offset)
-    items = data["items"]
-
-    if not items:
-        break
-
-    results.extend(items)
-    offset += 50
-
-return results
-```
-
-def sanitize(text):
-return "".join(c for c in text if c not in '\/:*?"<>|').strip()
-
-def download_track(track_data, base_folder, downloaded):
-track = track_data["track"]
-
-```
-artist = sanitize(track["artists"][0]["name"])
-album = sanitize(track["album"]["name"])
-name = sanitize(track["name"])
-track_number = track["track_number"]
-
-if (artist, name) in downloaded:
-    return
-
-artist_dir = os.path.join(base_folder, artist)
-album_dir = os.path.join(artist_dir, album)
-
-os.makedirs(album_dir, exist_ok=True)
-
-filename = f"{track_number:02d} - {name}.%(ext)s"
-output_path = os.path.join(album_dir, filename)
-
-search_query = f"{artist} {name} official audio"
-
-ydl_opts = {
-    "format": "bestaudio/best",
-    "outtmpl": output_path,
-    "quiet": True,
-    "noplaylist": True,
-    "retries": 5,
-    "fragment_retries": 5,
-    "continuedl": True,
-    "default_search": "ytsearch1",
-    "cookiefile": "cookies.txt" if os.path.exists("cookies.txt") else None,
-    "postprocessors": [
-        {
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": f"{folder}/%(title)s.%(ext)s",
+        "noplaylist": True,
+        "quiet": True,
+        "ignoreerrors": True,
+        "postprocessors": [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
             "preferredquality": "192",
-        }
-    ],
-}
+        }],
+    }
 
-try:
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([search_query])
+    if BROWSER_COOKIES:
+        ydl_opts["cookiesfrombrowser"] = BROWSER_COOKIES
 
-    save_download(artist, album, name, track_number)
+    try:
 
-    print(f"Downloaded: {artist} - {name}")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([search])
 
-except Exception as e:
-    print(f"Failed: {artist} - {name}")
-    print(e)
-```
+        save_downloaded(song)
 
+        print(f"Downloaded: {song}")
+
+    except Exception as e:
+
+        print(f"Failed: {song}")
+        print(e)
+
+
+# -----------------------------
+# Main
+# -----------------------------
 def main():
-config = load_config()
-folder = config["download_folder"]
 
-```
-sp = get_spotify_client()
+    sp = get_spotify_client()
 
-songs = get_liked_songs(sp)
+    config = load_config()
 
-downloaded = load_downloaded()
+    folder = config["download_folder"]
 
-print(f"Found {len(songs)} liked songs")
+    Path(folder).mkdir(parents=True, exist_ok=True)
 
-with ThreadPoolExecutor(max_workers=3) as executor:
-    executor.map(
-        lambda t: download_track(t, folder, downloaded),
-        songs
-    )
-```
+    songs = get_saved_tracks(sp)
 
-if **name** == "**main**":
-main()
+    downloaded = load_downloaded()
+
+    print(f"{len(songs)} songs found")
+    print(f"{len(downloaded)} already downloaded")
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+
+        for song in songs:
+            executor.submit(download_track, song, folder, downloaded)
+
+
+if __name__ == "__main__":
+    main()
