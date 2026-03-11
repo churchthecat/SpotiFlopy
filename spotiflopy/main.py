@@ -1,139 +1,150 @@
 import os
+import json
 import subprocess
-import shutil
-import argparse
-from concurrent.futures import ThreadPoolExecutor
-
-import requests
-from dotenv import load_dotenv
-
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from dotenv import load_dotenv
 
-from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, APIC
+CONFIG_DIR = os.path.expanduser("~/.config/spotiflopy")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 
 
-DOWNLOAD_DIR = "downloads"
-MAX_WORKERS = 4
+def ensure_config():
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+
+    if not os.path.exists(CONFIG_FILE):
+        print("\nFirst run setup\n")
+        download_dir = input("Enter music download directory: ").strip()
+
+        if download_dir.startswith("~"):
+            download_dir = os.path.expanduser(download_dir)
+
+        os.makedirs(download_dir, exist_ok=True)
+
+        config = {"download_dir": download_dir}
+
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(config, f)
+
+        print(f"\nDownload directory set to: {download_dir}\n")
+
+
+def get_download_dir():
+    ensure_config()
+
+    with open(CONFIG_FILE) as f:
+        return json.load(f)["download_dir"]
+
+
+def set_download_dir():
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+
+    new_dir = input("Enter new music download directory: ").strip()
+
+    if new_dir.startswith("~"):
+        new_dir = os.path.expanduser(new_dir)
+
+    os.makedirs(new_dir, exist_ok=True)
+
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({"download_dir": new_dir}, f)
+
+    print(f"\nDownload directory updated to: {new_dir}\n")
 
 
 def get_spotify_client():
-
     load_dotenv()
-
-    client_id = os.getenv("SPOTIPY_CLIENT_ID")
-    client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
-    redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI")
-
-    if not client_id or not client_secret:
-
-        print("\nSpotify credentials missing.\n")
-        print("Create a .env file:\n")
-        print("SPOTIPY_CLIENT_ID=xxxx")
-        print("SPOTIPY_CLIENT_SECRET=xxxx")
-        print("SPOTIPY_REDIRECT_URI=http://localhost:8888/callback\n")
-
-        exit(1)
 
     return spotipy.Spotify(
         auth_manager=SpotifyOAuth(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-            scope="user-library-read playlist-read-private",
+            scope="user-library-read",
+            open_browser=True
         )
     )
 
 
-def detect_browser():
+def fetch_liked_songs(sp):
+    results = []
+    offset = 0
 
-    browsers = ["chromium", "chrome", "brave", "edge"]
+    while True:
+        items = sp.current_user_saved_tracks(limit=50, offset=offset)["items"]
 
-    for b in browsers:
-        if shutil.which(b):
-            return b
+        if not items:
+            break
+
+        for item in items:
+            track = item["track"]
+
+            artist = track["artists"][0]["name"]
+            title = track["name"]
+            album = track["album"]["name"]
+            cover = track["album"]["images"][0]["url"]
+
+            results.append((artist, title, album, cover))
+
+        offset += 50
+
+    return results
+
+
+def fetch_playlist(sp, playlist_url):
+    playlist = sp.playlist_items(playlist_url)
+    results = []
+
+    for item in playlist["items"]:
+        track = item["track"]
+
+        if not track:
+            continue
+
+        artist = track["artists"][0]["name"]
+        title = track["name"]
+        album = track["album"]["name"]
+        cover = track["album"]["images"][0]["url"]
+
+        results.append((artist, title, album, cover))
+
+    return results
+
+
+def detect_browser_cookie():
+    browsers = ["chrome", "chromium", "brave"]
+
+    for browser in browsers:
+        try:
+            subprocess.run(
+                ["yt-dlp", "--cookies-from-browser", browser, "--skip-download", "https://youtube.com"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5
+            )
+            return browser
+        except Exception:
+            continue
 
     return None
 
 
-def get_cookie_args():
-
-    browser = detect_browser()
-
-    if browser:
-        print(f"Using browser cookies: {browser}")
-        return ["--cookies-from-browser", browser]
-
-    if os.path.exists("cookies.txt"):
-        print("Using cookies.txt")
-        return ["--cookies", "cookies.txt"]
-
-    print("No cookies found — downloads may fail")
-    return []
-
-
-def song_exists(artist, title):
-
-    path = os.path.join(DOWNLOAD_DIR, artist, f"{title}.mp3")
-
-    return os.path.exists(path)
-
-
-def tag_mp3(file_path, artist, title, album=None, cover_url=None):
-
-    try:
-        audio = EasyID3(file_path)
-    except:
-        audio = EasyID3()
-        audio.save(file_path)
-        audio = EasyID3(file_path)
-
-    audio["artist"] = artist
-    audio["title"] = title
-
-    if album:
-        audio["album"] = album
-
-    audio.save()
-
-    if cover_url:
-
-        try:
-            img = requests.get(cover_url).content
-
-            audio = ID3(file_path)
-
-            audio["APIC"] = APIC(
-                encoding=3,
-                mime="image/jpeg",
-                type=3,
-                desc="Cover",
-                data=img,
-            )
-
-            audio.save()
-
-        except:
-            pass
-
-
-def download_song(song, cookie_args):
+def download_song(song, browser_cookie):
+    download_dir = get_download_dir()
 
     artist, title, album, cover = song
 
-    if song_exists(artist, title):
-        print(f"Skipping: {artist} - {title}")
+    folder = os.path.join(download_dir, artist)
+    os.makedirs(folder, exist_ok=True)
+
+    output = os.path.join(folder, f"{title}.%(ext)s")
+    mp3_path = os.path.join(folder, f"{title}.mp3")
+
+    if os.path.exists(mp3_path):
         return
 
-    query = f"{artist} {title}"
+    query = f"ytsearch1:{artist} - {title}"
 
-    output = os.path.join(DOWNLOAD_DIR, artist, f"{title}.%(ext)s")
-
-    os.makedirs(os.path.dirname(output), exist_ok=True)
-
-    base_cmd = [
+    cmd = [
         "yt-dlp",
+        query,
         "-x",
         "--audio-format",
         "mp3",
@@ -141,180 +152,60 @@ def download_song(song, cookie_args):
         "0",
         "-o",
         output,
-        f"ytsearch1:{query}",
+        "--embed-thumbnail",
+        "--add-metadata",
+        "--no-playlist"
     ]
 
-    cmd = base_cmd + cookie_args
+    if browser_cookie:
+        cmd.extend(["--cookies-from-browser", browser_cookie])
 
     try:
-
-        subprocess.run(
-            cmd,
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-
+        subprocess.run(cmd, check=True)
         print(f"Downloaded: {artist} - {title}")
-
-    except subprocess.CalledProcessError:
-
-        if cookie_args:
-
-            print(f"Retry without cookies: {artist} - {title}")
-
-            try:
-
-                subprocess.run(
-                    base_cmd,
-                    check=True,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-
-            except subprocess.CalledProcessError:
-
-                print(f"Failed: {artist} - {title}")
-                return
-
-        else:
-
-            print(f"Failed: {artist} - {title}")
-            return
-
-    mp3_path = os.path.join(DOWNLOAD_DIR, artist, f"{title}.mp3")
-
-    if os.path.exists(mp3_path):
-        tag_mp3(mp3_path, artist, title, album, cover)
+    except Exception as e:
+        print(f"Failed: {artist} - {title} ({e})")
 
 
-def fetch_liked_songs(sp):
-
-    songs = []
-    offset = 0
-
-    while True:
-
-        results = sp.current_user_saved_tracks(limit=50, offset=offset)
-
-        if not results["items"]:
-            break
-
-        for item in results["items"]:
-
-            track = item["track"]
-
-            artist = track["artists"][0]["name"]
-            title = track["name"]
-            album = track["album"]["name"]
-
-            cover = None
-            images = track["album"]["images"]
-
-            if images:
-                cover = images[0]["url"]
-
-            songs.append((artist, title, album, cover))
-
-        offset += 50
-
-    return songs
-
-
-def fetch_playlist(sp, playlist_url):
-
-    songs = []
-    results = sp.playlist_items(playlist_url)
-
-    while results:
-
-        for item in results["items"]:
-
-            track = item["track"]
-
-            if track is None:
-                continue
-
-            artist = track["artists"][0]["name"]
-            title = track["name"]
-            album = track["album"]["name"]
-
-            cover = None
-            images = track["album"]["images"]
-
-            if images:
-                cover = images[0]["url"]
-
-            songs.append((artist, title, album, cover))
-
-        if results["next"]:
-            results = sp.next(results)
-        else:
-            results = None
-
-    return songs
-
-
-def run_downloads(songs):
-
-    cookie_args = get_cookie_args()
-
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
-    print(f"\nDownloading {len(songs)} songs...\n")
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        executor.map(lambda s: download_song(s, cookie_args), songs)
-
-    print("\nDone.\n")
-
-
-def cmd_sync():
-
+def sync_liked():
     print("\nSyncing Spotify liked songs...\n")
 
     sp = get_spotify_client()
 
     songs = fetch_liked_songs(sp)
 
-    run_downloads(songs)
+    browser_cookie = detect_browser_cookie()
 
+    for song in songs:
+        download_song(song, browser_cookie)
 
-def cmd_playlist(url):
-
-    print("\nDownloading playlist...\n")
-
-    sp = get_spotify_client()
-
-    songs = fetch_playlist(sp, url)
-
-    run_downloads(songs)
+    print("\nDownload complete.\n")
 
 
 def main():
+    import sys
 
-    parser = argparse.ArgumentParser(
-        prog="spotiflopy",
-        description="Sync Spotify songs locally using YouTube",
-    )
+    if len(sys.argv) > 1:
 
-    sub = parser.add_subparsers(dest="command")
+        if sys.argv[1] == "setdir":
+            set_download_dir()
+            return
 
-    sub.add_parser("sync", help="Download liked songs")
+        if sys.argv[1] == "playlist":
+            playlist_url = sys.argv[2]
 
-    playlist_cmd = sub.add_parser("playlist", help="Download playlist")
-    playlist_cmd.add_argument("url")
+            sp = get_spotify_client()
 
-    args = parser.parse_args()
+            songs = fetch_playlist(sp, playlist_url)
 
-    if args.command == "sync":
-        cmd_sync()
+            browser_cookie = detect_browser_cookie()
 
-    elif args.command == "playlist":
-        cmd_playlist(args.url)
+            for song in songs:
+                download_song(song, browser_cookie)
 
-    else:
-        parser.print_help()
+            return
+
+    sync_liked()
 
 
 if __name__ == "__main__":
