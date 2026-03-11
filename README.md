@@ -18,15 +18,18 @@ SpotiFlopy syncs your Spotify library and downloads audio from YouTube using **S
 # Features
 
 * Sync Spotify liked songs
+* Download Spotify playlists
 * Automatic YouTube downloads
-* Artist / Album folder structure
+* Artist folder organization
 * Embedded album artwork
 * Proper ID3 tags
-* Duplicate tracking
+* Duplicate detection
+* CLI tool (`spotiflopy`)
+* Optional daemon auto-sync
 * Cron automation
 * Linux server support
-* Headless authentication
-* CLI tool (`spotiflopy`)
+* Headless authentication support
+* Automatic browser cookie detection
 
 ---
 
@@ -35,7 +38,7 @@ SpotiFlopy syncs your Spotify library and downloads audio from YouTube using **S
 Example run:
 
 ```
-$ spotiflopy
+$ spotiflopy sync
 
 Syncing Spotify liked songs...
 
@@ -50,11 +53,12 @@ Example folder structure:
 
 ```
 Music/
- └── SpotiFlopy/
-     ├── Artist/
-     │   └── Album/
-     │       ├── 01 - Track.mp3
-     │       └── 02 - Track.mp3
+ ├── VNV Nation/
+ │   ├── Beloved.mp3
+ │   └── Nova (Shine a Light on Me).mp3
+ │
+ ├── Electro Spectre/
+ │   └── The Bell.mp3
 ```
 
 ---
@@ -75,6 +79,8 @@ pip install -e .
 
 spotiflopy
 ```
+
+First run will ask for your **music download folder**.
 
 ---
 
@@ -116,8 +122,6 @@ spotiflopy
 
 # CLI Usage
 
-After installation you can run SpotiFlopy via CLI.
-
 Basic usage:
 
 ```
@@ -128,30 +132,26 @@ Commands:
 
 ```
 spotiflopy sync
-spotiflopy login
-spotiflopy doctor
+spotiflopy playlist PLAYLIST_URL
+spotiflopy daemon
+spotiflopy daemon 6
+spotiflopy setdir
 ```
 
-| Command           | Description       |
-| ----------------- | ----------------- |
-| spotiflopy        | Sync liked songs  |
-| spotiflopy sync   | Manual sync       |
-| spotiflopy login  | Re-authenticate   |
-| spotiflopy doctor | Check environment |
+| Command                   | Description               |
+| ------------------------- | ------------------------- |
+| `spotiflopy`              | Sync liked songs          |
+| `spotiflopy sync`         | Manual sync               |
+| `spotiflopy playlist URL` | Download a playlist       |
+| `spotiflopy daemon`       | Auto-sync every 12 hours  |
+| `spotiflopy daemon 6`     | Auto-sync every 6 hours   |
+| `spotiflopy setdir`       | Change download directory |
 
 ---
 
 # Spotify Authentication
 
-SpotiFlopy supports **two authentication methods**.
-
----
-
-# Option A — Localhost Authentication (Recommended)
-
-Use when running locally.
-
-Create Spotify application:
+Create a Spotify application:
 
 https://developer.spotify.com/dashboard
 
@@ -161,7 +161,7 @@ Add redirect URI:
 http://localhost:8888/callback
 ```
 
-Create `.env`
+Create `.env` file:
 
 ```
 SPOTIPY_CLIENT_ID=your_client_id
@@ -175,9 +175,9 @@ Run:
 spotiflopy
 ```
 
-Browser will open for login.
+A browser window will open for authentication.
 
-Token stored locally:
+Token is stored locally:
 
 ```
 .spotiflofy_token_cache
@@ -185,20 +185,15 @@ Token stored locally:
 
 ---
 
-# Option B — Cloudflare Tunnel (Headless Servers)
+# Headless / Server Authentication
 
-Use when running on:
+For headless systems (servers, VPS, containers), you can use an OAuth proxy.
 
-* VPS
-* remote servers
-* headless machines
-* environments without browsers
-
-Example proxy:
+Example project:
 
 https://github.com/1111ij1/spotify-proxy
 
-Example `.env`
+Example `.env`:
 
 ```
 SPOTIPY_CLIENT_ID=
@@ -206,13 +201,15 @@ SPOTIPY_CLIENT_SECRET=
 SPOTIPY_REDIRECT_URI=https://your-domain.com/callback
 ```
 
-The proxy handles OAuth authentication.
+The proxy handles the Spotify login flow.
 
 ---
 
 # Automation (Cron)
 
 Automatically sync your Spotify library.
+
+Edit crontab:
 
 ```
 crontab -e
@@ -228,33 +225,45 @@ Runs twice daily.
 
 ---
 
-# YouTube Cookies (Avoid Bot Detection)
+# YouTube Cookies
 
-YouTube may require browser cookies.
+YouTube may occasionally block downloads.
 
-SpotiFlopy attempts to use cookies from:
+SpotiFlopy automatically attempts to extract cookies from installed browsers:
 
 * Chrome
 * Chromium
 * Brave
 * Firefox
 
-Install Chromium on servers:
+If a browser is installed and logged into YouTube, downloads usually work automatically.
+
+Example install for servers that works best with yt-dl:
 
 ```
 sudo apt install chromium-browser
 ```
-# YouTube Cookies (Optional)
 
-If YouTube blocks downloads you can export cookies.
+---
 
-Install the "Get cookies.txt" browser extension.
+# Optional: Manual Cookies
+
+If YouTube still blocks downloads, export cookies manually.
+
+Install the browser extension:
+
+```
+Get cookies.txt
+```
 
 Export cookies from YouTube and place the file in the project folder:
 
+```
 cookies.txt
+```
 
 SpotiFlopy will automatically use it.
+
 ---
 
 # Updating
@@ -297,9 +306,9 @@ These are excluded in `.gitignore`.
 
 # Troubleshooting
 
-### YouTube "Sign in to confirm you're not a bot"
+### YouTube: "Sign in to confirm you're not a bot"
 
-Install a browser:
+Install Chromium:
 
 ```
 sudo apt install chromium-browser
@@ -323,13 +332,16 @@ Run again.
 
 ```
 SpotiFlopy/
- ├── main.py
+ ├── spotiflopy/
+ │   ├── __init__.py
+ │   └── main.py
+ │
  ├── requirements.txt
+ ├── pyproject.toml
  ├── setup.py
+ ├── install.sh
  ├── README.md
- ├── songs.csv
- ├── .env
- └── myenv/
+ └── .env
 ```
 
 ---
@@ -340,13 +352,6 @@ This project is based on the original **SpotiFlopy** by:
 
 https://github.com/aneeb02/SpotiFlopy
 
-The project has been extended with:
-
-* CLI interface
-* automation
-* improved authentication
-* headless support
-* improved download handling
 
 Huge thanks to the original author.
 
@@ -356,11 +361,11 @@ Huge thanks to the original author.
 
 Possible future improvements:
 
-* Playlist syncing
 * FLAC downloads
 * MusicBrainz metadata matching
 * Download progress bars
-* Web UI
+* Playlist auto-sync
+* Web interface
 
 ---
 
@@ -375,10 +380,3 @@ If you find bugs or improvements, open an issue or submit a PR.
 # License
 
 MIT License
-
-Copyright (c) 2025
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files to deal in the Software
-without restriction, including without limitation the rights to use, copy,
-modify, merge, publish, distribute, sublicense, and/or sell copies.
