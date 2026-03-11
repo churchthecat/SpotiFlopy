@@ -60,3 +60,35 @@ cookies.txt
 __pycache__/
 *.pyc
 songs.csv
+
+venv/
+myenv/
+
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+myenv/
+.env/
+
+# Tokens / credentials
+.env
+.spotiflofy_token_cache
+cookies.txt
+
+# Data files
+songs.csv
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# OS files
+.DS_Store
+Thumbs.db

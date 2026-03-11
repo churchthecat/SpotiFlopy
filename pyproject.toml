@@ -1,0 +1,27 @@
+[project]
+name = "spotiflopy"
+version = "0.1.0"
+description = "Automatically mirror your Spotify liked songs locally"
+readme = "README.md"
+requires-python = ">=3.9"
+
+authors = [
+  { name = "churchthecat" }
+]
+
+dependencies = [
+  "spotipy",
+  "yt-dlp",
+  "python-dotenv"
+]
+
+[project.scripts]
+spotiflopy = "spotiflopy.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["spotiflopy*"]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
