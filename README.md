@@ -244,7 +244,17 @@ Install Chromium on servers:
 ```
 sudo apt install chromium-browser
 ```
+# YouTube Cookies (Optional)
 
+If YouTube blocks downloads you can export cookies.
+
+Install the "Get cookies.txt" browser extension.
+
+Export cookies from YouTube and place the file in the project folder:
+
+cookies.txt
+
+SpotiFlopy will automatically use it.
 ---
 
 # Updating

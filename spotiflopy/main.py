@@ -1,15 +1,20 @@
 import os
 import subprocess
 import shutil
+import argparse
+from concurrent.futures import ThreadPoolExecutor
+
 from dotenv import load_dotenv
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
 
 DOWNLOAD_DIR = "downloads"
+MAX_WORKERS = 4
 
 
 def get_spotify_client():
+
     load_dotenv()
 
     client_id = os.getenv("SPOTIPY_CLIENT_ID")
@@ -17,11 +22,13 @@ def get_spotify_client():
     redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI")
 
     if not client_id or not client_secret:
+
         print("\nSpotify credentials missing.\n")
-        print("Create a .env file with:\n")
-        print("SPOTIPY_CLIENT_ID=your_client_id")
-        print("SPOTIPY_CLIENT_SECRET=your_client_secret")
+        print("Create a .env file:\n")
+        print("SPOTIPY_CLIENT_ID=xxxx")
+        print("SPOTIPY_CLIENT_SECRET=xxxx")
         print("SPOTIPY_REDIRECT_URI=http://localhost:8888/callback\n")
+
         exit(1)
 
     return spotipy.Spotify(
@@ -29,18 +36,14 @@ def get_spotify_client():
             client_id=client_id,
             client_secret=client_secret,
             redirect_uri=redirect_uri,
-            scope="user-library-read"
+            scope="user-library-read playlist-read-private",
         )
     )
 
 
 def detect_browser():
-    browsers = [
-        "chrome",
-        "chromium",
-        "brave",
-        "edge"
-    ]
+
+    browsers = ["chromium", "chrome", "brave", "edge"]
 
     for b in browsers:
         if shutil.which(b):
@@ -49,9 +52,39 @@ def detect_browser():
     return None
 
 
-def download_song(artist, title, browser=None):
+def get_cookie_args():
+
+    browser = detect_browser()
+
+    if browser:
+        print(f"Using browser cookies: {browser}")
+        return ["--cookies-from-browser", browser]
+
+    if os.path.exists("cookies.txt"):
+        print("Using cookies.txt")
+        return ["--cookies", "cookies.txt"]
+
+    print("No cookies found — downloads may fail")
+    return []
+
+
+def song_exists(artist, title):
+
+    path = os.path.join(DOWNLOAD_DIR, artist, f"{title}.mp3")
+
+    return os.path.exists(path)
+
+
+def download_song(song, cookie_args):
+
+    artist, title = song
+
+    if song_exists(artist, title):
+        print(f"Skipping: {artist} - {title}")
+        return
 
     query = f"{artist} {title}"
+
     output = os.path.join(DOWNLOAD_DIR, artist, f"{title}.%(ext)s")
 
     os.makedirs(os.path.dirname(output), exist_ok=True)
@@ -65,78 +98,155 @@ def download_song(artist, title, browser=None):
         "0",
         "-o",
         output,
-        f"ytsearch1:{query}"
+        f"ytsearch1:{query}",
     ]
 
-    if browser:
-        cmd = base_cmd + ["--cookies-from-browser", browser]
-    else:
-        cmd = base_cmd
+    cmd = base_cmd + cookie_args
 
     try:
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        subprocess.run(
+            cmd,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
         print(f"Downloaded: {artist} - {title}")
 
     except subprocess.CalledProcessError:
 
-        if browser:
-            print(f"Retrying without cookies: {artist} - {title}")
+        if cookie_args:
+
+            print(f"Retry without cookies: {artist} - {title}")
 
             try:
-                subprocess.run(base_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                subprocess.run(
+                    base_cmd,
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+
                 print(f"Downloaded: {artist} - {title}")
+
             except subprocess.CalledProcessError:
+
                 print(f"Failed: {artist} - {title}")
+
         else:
+
             print(f"Failed: {artist} - {title}")
 
 
 def fetch_liked_songs(sp):
 
-    results = []
+    songs = []
     offset = 0
 
     while True:
 
-        items = sp.current_user_saved_tracks(limit=50, offset=offset)
+        results = sp.current_user_saved_tracks(limit=50, offset=offset)
 
-        if not items["items"]:
+        if not results["items"]:
             break
 
-        for item in items["items"]:
+        for item in results["items"]:
 
             track = item["track"]
+
             artist = track["artists"][0]["name"]
             title = track["name"]
 
-            results.append((artist, title))
+            songs.append((artist, title))
 
         offset += 50
 
-    return results
+    return songs
 
 
-def main():
+def fetch_playlist(sp, playlist_url):
+
+    songs = []
+
+    results = sp.playlist_items(playlist_url)
+
+    for item in results["items"]:
+
+        track = item["track"]
+
+        if track is None:
+            continue
+
+        artist = track["artists"][0]["name"]
+        title = track["name"]
+
+        songs.append((artist, title))
+
+    return songs
+
+
+def run_downloads(songs):
+
+    cookie_args = get_cookie_args()
+
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+    print(f"\nDownloading {len(songs)} songs...\n")
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        executor.map(lambda s: download_song(s, cookie_args), songs)
+
+    print("\nDone.\n")
+
+
+def cmd_sync():
 
     print("\nSyncing Spotify liked songs...\n")
 
     sp = get_spotify_client()
 
-    browser = detect_browser()
-
-    if browser:
-        print(f"Using browser cookies: {browser}")
-    else:
-        print("No supported browser detected. Continuing without cookies.")
-
     songs = fetch_liked_songs(sp)
 
-    print(f"Found {len(songs)} liked songs\n")
+    run_downloads(songs)
 
-    for artist, title in songs:
-        download_song(artist, title, browser)
 
-    print("\nDownload complete.\n")
+def cmd_playlist(url):
+
+    print("\nDownloading playlist...\n")
+
+    sp = get_spotify_client()
+
+    songs = fetch_playlist(sp, url)
+
+    run_downloads(songs)
+
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        prog="spotiflopy",
+        description="Sync Spotify songs locally using YouTube"
+    )
+
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("sync", help="Download liked songs")
+
+    playlist_cmd = sub.add_parser("playlist", help="Download playlist")
+    playlist_cmd.add_argument("url")
+
+    args = parser.parse_args()
+
+    if args.command == "sync":
+        cmd_sync()
+
+    elif args.command == "playlist":
+        cmd_playlist(args.url)
+
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":

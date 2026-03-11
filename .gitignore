@@ -54,6 +54,7 @@ main.py.bak
 .env
 .env.*
 .cache/
+.cache
 .spotiflofy_token_cache
 .spotiflofy_config.json
 cookies.txt
