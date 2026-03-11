@@ -4,9 +4,14 @@ import shutil
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 
+import requests
 from dotenv import load_dotenv
+
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3, APIC
 
 
 DOWNLOAD_DIR = "downloads"
@@ -75,9 +80,47 @@ def song_exists(artist, title):
     return os.path.exists(path)
 
 
+def tag_mp3(file_path, artist, title, album=None, cover_url=None):
+
+    try:
+        audio = EasyID3(file_path)
+    except:
+        audio = EasyID3()
+        audio.save(file_path)
+        audio = EasyID3(file_path)
+
+    audio["artist"] = artist
+    audio["title"] = title
+
+    if album:
+        audio["album"] = album
+
+    audio.save()
+
+    if cover_url:
+
+        try:
+            img = requests.get(cover_url).content
+
+            audio = ID3(file_path)
+
+            audio["APIC"] = APIC(
+                encoding=3,
+                mime="image/jpeg",
+                type=3,
+                desc="Cover",
+                data=img,
+            )
+
+            audio.save()
+
+        except:
+            pass
+
+
 def download_song(song, cookie_args):
 
-    artist, title = song
+    artist, title, album, cover = song
 
     if song_exists(artist, title):
         print(f"Skipping: {artist} - {title}")
@@ -129,15 +172,20 @@ def download_song(song, cookie_args):
                     stderr=subprocess.DEVNULL,
                 )
 
-                print(f"Downloaded: {artist} - {title}")
-
             except subprocess.CalledProcessError:
 
                 print(f"Failed: {artist} - {title}")
+                return
 
         else:
 
             print(f"Failed: {artist} - {title}")
+            return
+
+    mp3_path = os.path.join(DOWNLOAD_DIR, artist, f"{title}.mp3")
+
+    if os.path.exists(mp3_path):
+        tag_mp3(mp3_path, artist, title, album, cover)
 
 
 def fetch_liked_songs(sp):
@@ -158,8 +206,15 @@ def fetch_liked_songs(sp):
 
             artist = track["artists"][0]["name"]
             title = track["name"]
+            album = track["album"]["name"]
 
-            songs.append((artist, title))
+            cover = None
+            images = track["album"]["images"]
+
+            if images:
+                cover = images[0]["url"]
+
+            songs.append((artist, title, album, cover))
 
         offset += 50
 
@@ -169,20 +224,33 @@ def fetch_liked_songs(sp):
 def fetch_playlist(sp, playlist_url):
 
     songs = []
-
     results = sp.playlist_items(playlist_url)
 
-    for item in results["items"]:
+    while results:
 
-        track = item["track"]
+        for item in results["items"]:
 
-        if track is None:
-            continue
+            track = item["track"]
 
-        artist = track["artists"][0]["name"]
-        title = track["name"]
+            if track is None:
+                continue
 
-        songs.append((artist, title))
+            artist = track["artists"][0]["name"]
+            title = track["name"]
+            album = track["album"]["name"]
+
+            cover = None
+            images = track["album"]["images"]
+
+            if images:
+                cover = images[0]["url"]
+
+            songs.append((artist, title, album, cover))
+
+        if results["next"]:
+            results = sp.next(results)
+        else:
+            results = None
 
     return songs
 
@@ -227,7 +295,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         prog="spotiflopy",
-        description="Sync Spotify songs locally using YouTube"
+        description="Sync Spotify songs locally using YouTube",
     )
 
     sub = parser.add_subparsers(dest="command")
