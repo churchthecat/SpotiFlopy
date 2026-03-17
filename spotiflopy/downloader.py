@@ -141,7 +141,7 @@ def download(track, base_dir):
 
     if os.path.exists(output_path):
         print(f"Already exists: {output_path}")
-        return
+        return True
 
     cache = load_cache()
     cache_key = f"{artist}::{title}"
@@ -151,25 +151,19 @@ def download(track, base_dir):
         print(f"⚡ Using cached match: {url}")
     else:
         query = f"{artist} - {title} audio"
-
-        print(f"\n=== Searching ===")
-        print(f"Query: {query}")
+        print(f"\n=== Searching === {query}")
 
         results = search_youtube(query)
-
         if not results:
             print("❌ No results")
-            return
+            return False
 
         best = pick_best(results, artist, title, duration)
-
         if not best:
             print("❌ No suitable match")
-            return
+            return False
 
         url = best["webpage_url"]
-        print(f"✅ Selected: {best['title']} ({best.get('duration')}s)")
-
         cache[cache_key] = url
         save_cache(cache)
 
@@ -185,15 +179,18 @@ def download(track, base_dir):
         "--no-playlist",
         "--embed-metadata",
         "--embed-thumbnail",
+        "--retries", "3",
     ]
 
     result = subprocess.run(cmd)
 
     if result.returncode != 0:
-        print("❌ Download failed")
-        return
+        print(f"❌ Download failed: {artist} - {title}")
+        return False
 
     if os.path.exists(output_path):
         print(f"✅ Saved: {output_path}")
+        return True
     else:
         print(f"⚠️ Missing file: {output_path}")
+        return False
