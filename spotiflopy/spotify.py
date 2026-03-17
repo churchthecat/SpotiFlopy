@@ -30,10 +30,19 @@ def get_liked_tracks():
             break
 
         for item in items:
-            track = item["track"]
+            t = item["track"]
+
+            album_name = (
+                t["album"]["name"]
+                if t.get("album") and t["album"].get("name")
+                else "Singles"
+            )
+
             results.append({
-                "artist": track["artists"][0]["name"],
-                "title": track["name"]
+                "artist": t["artists"][0]["name"],
+                "title": t["name"],
+                "album": album_name,
+                "track_number": t.get("track_number", 0) or 0
             })
 
         offset += 50

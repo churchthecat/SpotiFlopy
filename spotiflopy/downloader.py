@@ -4,7 +4,16 @@ from .config import load_config, get_music_dir
 
 
 def sanitize(text):
-    return "".join(c for c in text if c.isalnum() or c in " .-_").strip()
+    if not text:
+        return ""
+
+    cleaned = "".join(c for c in text if c.isalnum() or c in " .-_()").strip()
+    cleaned = " ".join(cleaned.split())
+    return cleaned
+
+
+def file_exists(album_dir, track_no, title):
+    return (album_dir / f"{track_no:02d} - {title}.mp3").exists()
 
 
 def download(track):
@@ -12,24 +21,50 @@ def download(track):
 
     artist = sanitize(track["artist"])
     title = sanitize(track["title"])
+    track_no = track.get("track_number", 0)
+
+    # --- album handling (no Unknown Album ever) ---
+    raw_album = track.get("album")
+    if raw_album:
+        album = sanitize(raw_album)
+    else:
+        album = "Singles"
+
+    if not album:
+        album = "Singles"
 
     music_dir = Path(get_music_dir()).expanduser().resolve()
-    music_dir.mkdir(parents=True, exist_ok=True)
+    album_dir = music_dir / artist / album
+    album_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = f"{artist} - {title}.%(ext)s"
-    output = str(music_dir / filename)
+    # --- skip existing ---
+    if file_exists(album_dir, track_no, title):
+        print(f"✔ Skipping: {artist} - {title}")
+        return
 
-    query = f"ytsearch1:{artist} {title}"
+    # enforce filename ourselves (yt-dlp must NOT override this)
+    filename = f"{track_no:02d} - {title}.mp3"
+    output = str(album_dir / filename)
+
+    query = f"ytsearch1:{artist} {title} audio"
 
     cmd = [
         "yt-dlp",
         "-x",
         "--audio-format", "mp3",
+
+        # embed metadata + cover art INTO file
+        "--embed-thumbnail",
+        "--add-metadata",
+
+        # do NOT let yt-dlp rename files
+        "--no-playlist",
+
         "-o", output,
         query
     ]
 
-    # --- cookies handling ---
+    # --- cookies ---
     if cfg.get("cookies_from_browser") and cfg["cookies_from_browser"] != "none":
         cmd += ["--cookies-from-browser", cfg["cookies_from_browser"]]
     elif cfg.get("cookies_file"):

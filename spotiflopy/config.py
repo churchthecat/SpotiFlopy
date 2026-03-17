@@ -22,6 +22,6 @@ def get_music_dir():
 
     try:
         cfg = load_config()
-        return cfg.get("music_dir") or str(Path.home() / "Music" / "SpotiFlopy")
+        return cfg.get("music_dir") or "~/Music/SpotiFlopy"
     except Exception:
-        return str(Path.home() / "Music" / "SpotiFlopy")
+        return "~/Music/SpotiFlopy"

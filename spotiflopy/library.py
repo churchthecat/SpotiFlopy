@@ -1,24 +1,83 @@
-import json
+import os
+import re
 from pathlib import Path
-
-INDEX_FILE = Path.home() / ".spotiflopy_index.json"
-
-
-def load_index():
-    if INDEX_FILE.exists():
-        with open(INDEX_FILE, "r") as f:
-            return set(json.load(f))
-    return set()
+from .config import get_music_dir
 
 
-def save_index(index):
-    with open(INDEX_FILE, "w") as f:
-        json.dump(list(index), f)
+def normalize(text):
+    text = text.lower()
+    text = re.sub(r"\d+\s*-\s*", "", text)
+    text = re.sub(r"[^\w\s]", "", text)
+    return " ".join(text.split())
 
 
-def exists(index, track_id):
-    return track_id in index
+def ensure_track_format(file_path):
+    name = file_path.stem
+
+    if re.match(r"^\d{2} - ", name):
+        return
+
+    clean_title = re.sub(r"^\d+\s*-\s*", "", name)
+    new_name = f"01 - {clean_title}{file_path.suffix}"
+    new_path = file_path.with_name(new_name)
+
+    print("Renaming:", file_path, "→", new_path)
+    file_path.rename(new_path)
 
 
-def add(index, track_id):
-    index.add(track_id)
+def repair_library():
+    music_dir = Path(get_music_dir()).expanduser().resolve()
+
+    print(f"Cleaning library at: {music_dir}\n")
+
+    for artist_path in music_dir.iterdir():
+        if not artist_path.is_dir():
+            continue
+
+        singles_dir = artist_path / "Singles"
+        singles_dir.mkdir(exist_ok=True)
+
+        # --- move loose files ---
+        for item in list(artist_path.iterdir()):
+            if item.is_file():
+
+                if item.suffix == ".webm":
+                    print("Removing leftover:", item)
+                    item.unlink()
+                    continue
+
+                if item.suffix == ".mp3":
+                    target = singles_dir / item.name
+                    print("Moving loose track → Singles:", item)
+                    item.rename(target)
+
+        # --- deduplicate ---
+        seen = {}
+
+        for root, _, files in os.walk(artist_path):
+            for f in files:
+                if not f.endswith(".mp3"):
+                    continue
+
+                full_path = Path(root) / f
+                norm = normalize(f)
+
+                if norm in seen:
+                    print("Removing duplicate:", full_path)
+                    full_path.unlink()
+                else:
+                    seen[norm] = full_path
+
+        # --- enforce naming ---
+        for root, _, files in os.walk(artist_path):
+            for f in files:
+                if f.endswith(".mp3"):
+                    ensure_track_format(Path(root) / f)
+
+    # --- remove empty folders ---
+    for root, dirs, files in os.walk(music_dir, topdown=False):
+        if not dirs and not files:
+            print("Removing empty folder:", root)
+            os.rmdir(root)
+
+    print("\nLibrary cleanup complete.")

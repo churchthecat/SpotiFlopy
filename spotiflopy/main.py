@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from .spotify import get_liked_tracks
 from .downloader import download
+from .library import repair_library
 
 CONFIG_FILE = Path.cwd() / "config.json"
 
@@ -13,14 +14,10 @@ def init():
     client_id = input("Spotify Client ID: ").strip()
     client_secret = input("Spotify Client Secret: ").strip()
 
-    default_music_display = "~/Music/SpotiFlopy"
-    music_dir = input(f"Music directory [{default_music_display}]: ").strip()
-
+    default_music = "~/Music/SpotiFlopy"
+    music_dir = input(f"Music directory [{default_music}]: ").strip()
     if not music_dir:
-        music_dir = default_music_display
-
-    # normalize but KEEP ~ in config (important)
-    music_dir = music_dir.replace(str(Path.home()), "~")
+        music_dir = default_music
 
     backend = input("Download backend (yt-dlp) [yt-dlp]: ").strip()
     if not backend:
@@ -31,7 +28,7 @@ def init():
         cookies = "chromium"
 
     cookies_file = input("Cookies.txt path (optional): ").strip()
-    proxy = input("Proxy (optional, e.g. http://127.0.0.1:8080): ").strip()
+    proxy = input("Proxy (optional): ").strip()
 
     config = {
         "client_id": client_id,
@@ -55,16 +52,18 @@ def sync():
         download(track)
 
 
+def repair():
+    repair_library()
+
+
 def main():
-    parser = argparse.ArgumentParser(
-        prog="spotiflopy",
-        description="Mirror your Spotify liked songs locally"
-    )
+    parser = argparse.ArgumentParser(prog="spotiflopy")
 
     subparsers = parser.add_subparsers(dest="command")
 
-    subparsers.add_parser("init", help="Setup configuration")
-    subparsers.add_parser("sync", help="Download liked songs")
+    subparsers.add_parser("init")
+    subparsers.add_parser("sync")
+    subparsers.add_parser("repair")
 
     args = parser.parse_args()
 
@@ -72,6 +71,8 @@ def main():
         init()
     elif args.command == "sync":
         sync()
+    elif args.command == "repair":
+        repair()
     else:
         parser.print_help()
 
