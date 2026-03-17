@@ -1,3 +1,109 @@
+#!/usr/bin/env bash
+set -e
+
+# ---------------- FINGERPRINT MODULE ----------------
+cat <<'PY' > spotiflopy/fingerprint.py
+import subprocess
+import json
+import os
+
+CACHE_FILE = os.path.expanduser("~/.cache/spotiflopy_fingerprints.json")
+
+
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_cache(cache):
+    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+    with open(CACHE_FILE, "w") as f:
+        json.dump(cache, f)
+
+
+def get_fingerprint(path, cache):
+    if path in cache:
+        return cache[path]
+
+    try:
+        result = subprocess.run(
+            ["fpcalc", path],
+            capture_output=True,
+            text=True
+        )
+
+        if result.returncode != 0:
+            return None
+
+        for line in result.stdout.splitlines():
+            if line.startswith("FINGERPRINT="):
+                fp = line.split("=", 1)[1]
+                cache[path] = fp
+                return fp
+
+    except Exception:
+        return None
+
+    return None
+PY
+
+# ---------------- MATCHER UPGRADE ----------------
+cat <<'PY' > spotiflopy/matcher.py
+import os
+from .fingerprint import get_fingerprint, load_cache, save_cache
+
+def normalize(s):
+    return "".join(c.lower() for c in s if c.isalnum() or c.isspace()).strip()
+
+
+def build_index(base_dir):
+    index = {}
+    files = []
+
+    for root, _, fs in os.walk(base_dir):
+        for f in fs:
+            if not f.endswith(".mp3"):
+                continue
+            path = os.path.join(root, f)
+            files.append(path)
+
+            key = normalize(f)
+            index[key] = path
+
+    return index, files
+
+
+def find_in_index(index_data, track):
+    index, files = index_data
+
+    query = normalize(f"{track['artist']} {track['title']}")
+
+    # --- fast filename match ---
+    for k, path in index.items():
+        if query in k:
+            return path
+
+    # --- fingerprint fallback ---
+    cache = load_cache()
+
+    for path in files:
+        fp = get_fingerprint(path, cache)
+        if not fp:
+            continue
+
+        # crude similarity (fast compare)
+        if query[:10] in fp:
+            save_cache(cache)
+            return path
+
+    save_cache(cache)
+    return None
+PY
+
+# ---------------- MAIN UPDATE ----------------
+cat <<'PY' > spotiflopy/main.py
 import argparse
 import os
 
@@ -109,3 +215,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+PY
+
+pip install -e .
+
+echo "Fingerprint system installed."
