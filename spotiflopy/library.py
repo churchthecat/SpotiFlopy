@@ -1,83 +1,71 @@
 import os
 import re
-from pathlib import Path
-from .config import get_music_dir
+
+def clean_album_name(name: str) -> str:
+    patterns = [
+        r"\(.*?edition.*?\)",
+        r"\(.*?remaster.*?\)",
+        r"\(.*?deluxe.*?\)",
+        r"\(.*?bonus.*?\)",
+        r"\(.*?expanded.*?\)",
+        r"\(.*?anniversary.*?\)",
+    ]
+
+    cleaned = name
+    for p in patterns:
+        cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE)
+
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
 
 
-def normalize(text):
-    text = text.lower()
-    text = re.sub(r"\d+\s*-\s*", "", text)
-    text = re.sub(r"[^\w\s]", "", text)
-    return " ".join(text.split())
+def sanitize(text: str) -> str:
+    return re.sub(r'[<>:"/\\|?*]', '', text)
 
 
-def ensure_track_format(file_path):
-    name = file_path.stem
+def get_track_path(base_dir, artist, album, track_number, title):
+    artist = sanitize(artist)
+    album = sanitize(clean_album_name(album))
+    title = sanitize(title)
 
-    if re.match(r"^\d{2} - ", name):
-        return
+    artist_dir = os.path.join(base_dir, artist)
+    album_dir = os.path.join(artist_dir, album)
 
-    clean_title = re.sub(r"^\d+\s*-\s*", "", name)
-    new_name = f"01 - {clean_title}{file_path.suffix}"
-    new_path = file_path.with_name(new_name)
+    os.makedirs(album_dir, exist_ok=True)
 
-    print("Renaming:", file_path, "→", new_path)
-    file_path.rename(new_path)
+    filename = f"{track_number:02d} - {title}.mp3"
+    return os.path.join(album_dir, filename)
 
 
-def repair_library():
-    music_dir = Path(get_music_dir()).expanduser().resolve()
+def repair_library(base_dir):
+    print("Repairing library structure...")
 
-    print(f"Cleaning library at: {music_dir}\n")
-
-    for artist_path in music_dir.iterdir():
-        if not artist_path.is_dir():
+    for artist in os.listdir(base_dir):
+        artist_path = os.path.join(base_dir, artist)
+        if not os.path.isdir(artist_path):
             continue
 
-        singles_dir = artist_path / "Singles"
-        singles_dir.mkdir(exist_ok=True)
+        for album in os.listdir(artist_path):
+            album_path = os.path.join(artist_path, album)
+            if not os.path.isdir(album_path):
+                continue
 
-        # --- move loose files ---
-        for item in list(artist_path.iterdir()):
-            if item.is_file():
+            cleaned_album = clean_album_name(album)
 
-                if item.suffix == ".webm":
-                    print("Removing leftover:", item)
-                    item.unlink()
-                    continue
+            if cleaned_album != album:
+                new_album_path = os.path.join(artist_path, cleaned_album)
 
-                if item.suffix == ".mp3":
-                    target = singles_dir / item.name
-                    print("Moving loose track → Singles:", item)
-                    item.rename(target)
-
-        # --- deduplicate ---
-        seen = {}
-
-        for root, _, files in os.walk(artist_path):
-            for f in files:
-                if not f.endswith(".mp3"):
-                    continue
-
-                full_path = Path(root) / f
-                norm = normalize(f)
-
-                if norm in seen:
-                    print("Removing duplicate:", full_path)
-                    full_path.unlink()
+                if not os.path.exists(new_album_path):
+                    print(f"Renaming album: {album} -> {cleaned_album}")
+                    os.rename(album_path, new_album_path)
                 else:
-                    seen[norm] = full_path
+                    # Merge folders
+                    print(f"Merging album folders: {album} -> {cleaned_album}")
+                    for f in os.listdir(album_path):
+                        src = os.path.join(album_path, f)
+                        dst = os.path.join(new_album_path, f)
+                        if not os.path.exists(dst):
+                            os.rename(src, dst)
+                    os.rmdir(album_path)
 
-        # --- enforce naming ---
-        for root, _, files in os.walk(artist_path):
-            for f in files:
-                if f.endswith(".mp3"):
-                    ensure_track_format(Path(root) / f)
-
-    # --- remove empty folders ---
-    for root, dirs, files in os.walk(music_dir, topdown=False):
-        if not dirs and not files:
-            print("Removing empty folder:", root)
-            os.rmdir(root)
-
-    print("\nLibrary cleanup complete.")
+    print("Library repair complete.")

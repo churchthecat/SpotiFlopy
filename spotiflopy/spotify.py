@@ -6,12 +6,25 @@ from .config import load_config
 def get_client():
     cfg = load_config()
 
+    # ✅ Support BOTH formats
+    if "spotify" in cfg:
+        spcfg = cfg["spotify"]
+    else:
+        spcfg = cfg
+
+    client_id = spcfg.get("client_id")
+    client_secret = spcfg.get("client_secret")
+
+    if not client_id or not client_secret:
+        raise ValueError("Missing Spotify credentials in config")
+
     return spotipy.Spotify(
         auth_manager=SpotifyOAuth(
-            client_id=cfg["client_id"],
-            client_secret=cfg["client_secret"],
-            redirect_uri="http://localhost:8888/callback",
-            scope="user-library-read"
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri="http://127.0.0.1:8888/callback",
+            scope="user-library-read",
+            cache_path=".spotiflopy_token_cache",
         )
     )
 
@@ -19,32 +32,18 @@ def get_client():
 def get_liked_tracks():
     sp = get_client()
 
-    results = []
-    offset = 0
+    results = sp.current_user_saved_tracks(limit=50)
 
-    while True:
-        data = sp.current_user_saved_tracks(limit=50, offset=offset)
-        items = data.get("items", [])
+    tracks = []
 
-        if not items:
-            break
+    for item in results["items"]:
+        t = item["track"]
 
-        for item in items:
-            t = item["track"]
+        tracks.append({
+            "artist": t["artists"][0]["name"],
+            "title": t["name"],
+            "album": t["album"]["name"],
+            "track_number": t["track_number"],
+        })
 
-            album_name = (
-                t["album"]["name"]
-                if t.get("album") and t["album"].get("name")
-                else "Singles"
-            )
-
-            results.append({
-                "artist": t["artists"][0]["name"],
-                "title": t["name"],
-                "album": album_name,
-                "track_number": t.get("track_number", 0) or 0
-            })
-
-        offset += 50
-
-    return results
+    return tracks

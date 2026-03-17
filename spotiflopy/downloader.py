@@ -1,78 +1,64 @@
+import os
 import subprocess
-from pathlib import Path
-from .config import load_config, get_music_dir
+import re
+
+from .library import get_track_path
 
 
-def sanitize(text):
-    if not text:
-        return ""
+def clean_title(title: str) -> str:
+    patterns = [
+        r"\(.*?remaster.*?\)",
+        r"\(.*?live.*?\)",
+        r"\(.*?version.*?\)",
+        r"\(.*?\)",
+        r"- remaster.*",
+    ]
 
-    cleaned = "".join(c for c in text if c.isalnum() or c in " .-_()").strip()
-    cleaned = " ".join(cleaned.split())
-    return cleaned
+    cleaned = title
+    for p in patterns:
+        cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE)
+
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def file_exists(album_dir, track_no, title):
-    return (album_dir / f"{track_no:02d} - {title}.mp3").exists()
+def download(track, base_dir):
+    artist = track["artist"]
+    album = track["album"]
+    title = clean_title(track["title"])
+    track_number = track["track_number"]
 
+    output_path = get_track_path(base_dir, artist, album, track_number, title)
 
-def download(track):
-    cfg = load_config()
-
-    artist = sanitize(track["artist"])
-    title = sanitize(track["title"])
-    track_no = track.get("track_number", 0)
-
-    # --- album handling (no Unknown Album ever) ---
-    raw_album = track.get("album")
-    if raw_album:
-        album = sanitize(raw_album)
-    else:
-        album = "Singles"
-
-    if not album:
-        album = "Singles"
-
-    music_dir = Path(get_music_dir()).expanduser().resolve()
-    album_dir = music_dir / artist / album
-    album_dir.mkdir(parents=True, exist_ok=True)
-
-    # --- skip existing ---
-    if file_exists(album_dir, track_no, title):
-        print(f"✔ Skipping: {artist} - {title}")
+    if os.path.exists(output_path):
+        print(f"Already exists: {output_path}")
         return
 
-    # enforce filename ourselves (yt-dlp must NOT override this)
-    filename = f"{track_no:02d} - {title}.mp3"
-    output = str(album_dir / filename)
+    query = f"{artist} - {title}"
 
-    query = f"ytsearch1:{artist} {title} audio"
+    print(f"\n=== Downloading ===")
+    print(f"Query: {query}")
+
+    temp_output = output_path.replace(".mp3", ".%(ext)s")
 
     cmd = [
         "yt-dlp",
+        f"ytsearch1:{query}",
         "-x",
         "--audio-format", "mp3",
-
-        # embed metadata + cover art INTO file
-        "--embed-thumbnail",
-        "--add-metadata",
-
-        # do NOT let yt-dlp rename files
+        "--audio-quality", "0",
+        "-o", temp_output,
         "--no-playlist",
-
-        "-o", output,
-        query
+        "--embed-metadata",
+        "--embed-thumbnail",
     ]
 
-    # --- cookies ---
-    if cfg.get("cookies_from_browser") and cfg["cookies_from_browser"] != "none":
-        cmd += ["--cookies-from-browser", cfg["cookies_from_browser"]]
-    elif cfg.get("cookies_file"):
-        cmd += ["--cookies", cfg["cookies_file"]]
+    result = subprocess.run(cmd)
 
-    # --- proxy ---
-    if cfg.get("proxy"):
-        cmd += ["--proxy", cfg["proxy"]]
+    if result.returncode != 0:
+        print(f"❌ yt-dlp failed for: {query}")
+        return
 
-    print(f"⬇️ Downloading: {artist} - {title}")
-    subprocess.run(cmd)
+    if not os.path.exists(output_path):
+        print(f"⚠️ File not found after download: {output_path}")
+    else:
+        print(f"✅ Saved: {output_path}")

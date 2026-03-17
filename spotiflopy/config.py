@@ -1,27 +1,20 @@
-import json
 import os
-from pathlib import Path
+import json
 
-CONFIG_PATH = Path.cwd() / "config.json"
+CONFIG_PATH = os.path.expanduser("~/.config/spotiflopy/config.json")
 
 
 def load_config():
-    if not CONFIG_PATH.exists():
-        raise FileNotFoundError(
-            f"Config not found at {CONFIG_PATH}. Run 'spotiflopy init' first."
-        )
+    if not os.path.exists(CONFIG_PATH):
+        raise FileNotFoundError(f"Config not found: {CONFIG_PATH}")
 
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
 
 
 def get_music_dir():
-    env_dir = os.getenv("SPOTIFLOPY_MUSIC_DIR")
-    if env_dir:
-        return env_dir
+    cfg = load_config()
+    path = cfg.get("music_dir", "~/Music/SpotiFlopy")
 
-    try:
-        cfg = load_config()
-        return cfg.get("music_dir") or "~/Music/SpotiFlopy"
-    except Exception:
-        return "~/Music/SpotiFlopy"
+    # 🔥 THIS IS THE IMPORTANT FIX
+    return os.path.expanduser(path)
