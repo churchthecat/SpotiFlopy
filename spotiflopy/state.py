@@ -1,41 +1,31 @@
-import os
 import json
+import os
 from datetime import datetime
 
-STATE_FILE = os.path.expanduser("~/.cache/spotiflopy_state.json")
+STATE_FILE = os.path.expanduser("~/.spotiflopy_state.json")
+
+
+def now_iso():
+    return datetime.utcnow().isoformat()
 
 
 def load_state():
-    # default structure
-    state = {
-        "completed": [],
-        "last_sync": {}
-    }
+    if not os.path.exists(STATE_FILE):
+        return {"completed": [], "last_sync": {}}
 
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE) as f:
-                loaded = json.load(f)
-
-                # merge safely (backward compatibility)
-                if isinstance(loaded, dict):
-                    state["completed"] = loaded.get("completed", [])
-                    state["last_sync"] = loaded.get("last_sync", {})
-        except Exception:
-            print("⚠️ Corrupted state file, resetting...")
-
-    return state
+    with open(STATE_FILE, "r") as f:
+        return json.load(f)
 
 
 def save_state(state):
-    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
 
 def make_key(track):
-    return f"{track['artist']}::{track['title']}"
+    # STRONG UNIQUE KEY → Spotify ID
+    if "id" in track and track["id"]:
+        return f"spotify:{track['id']}"
 
-
-def now_iso():
-    return datetime.utcnow().isoformat()
+    # fallback (should rarely happen)
+    return f"{track['artist']}::{track['title']}".lower()
