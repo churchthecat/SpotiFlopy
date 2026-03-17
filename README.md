@@ -48,7 +48,7 @@ You will be prompted for:
 
 ---
 
-## 🔑 Spotify App Setup (Local)
+## 🔑 Spotify App Setup (Local) Easy
 
 Create an app:
 
@@ -66,7 +66,7 @@ A browser will open for authentication.
 
 ---
 
-## ☁️ Headless / Server Setup (Cloudflare Proxy)
+## ☁️ Headless / Server Setup (Cloudflare Proxy) Recommended
 
 For servers, VPS, or headless setups, you can use a public HTTPS callback via Cloudflare.
 
