@@ -12,6 +12,7 @@ from .downloader import download
 from .config import get_music_dir
 from .library import repair_library
 from .state import load_state, save_state, make_key, now_iso
+from .playlist import create_symlink
 
 
 def run_downloads(tracks, base_dir, completed, state, workers):
@@ -21,10 +22,10 @@ def run_downloads(tracks, base_dir, completed, state, workers):
 
     def process(track):
         nonlocal done
-        success = download(track, base_dir)
+        path = download(track, base_dir)
 
         with lock:
-            if success:
+            if path:
                 completed.add(make_key(track))
                 state["completed"] = list(completed)
                 save_state(state)
@@ -37,7 +38,7 @@ def run_downloads(tracks, base_dir, completed, state, workers):
 
 
 def sync_liked(state, completed, workers, base_dir, limit=None):
-    since = state["last_sync"].get("liked")
+    since = state.get("last_sync", {}).get("liked")
     tracks = get_liked_tracks(since=since)
 
     tracks = [t for t in tracks if make_key(t) not in completed]
@@ -49,10 +50,59 @@ def sync_liked(state, completed, workers, base_dir, limit=None):
 
     run_downloads(tracks, base_dir, completed, state, workers)
 
-    state["last_sync"]["liked"] = now_iso()
+    state.setdefault("last_sync", {})["liked"] = now_iso()
     save_state(state)
 
 
+def sync_playlists(state, completed, workers, base_dir, limit=None):
+    playlists = get_playlists()
+
+    for p in playlists:
+        key = f"playlist:{p['name']}"
+        since = state.get("last_sync", {}).get(key)
+
+        print(f"\n🔍 Checking playlist: {p['name']}")
+
+        try:
+            tracks = get_playlist_tracks(p["id"], since=since)
+        except Exception as e:
+            print(f"⚠️ Skipping playlist '{p['name']}': {e}")
+            continue
+
+        tracks = [t for t in tracks if make_key(t) not in completed]
+
+        if limit:
+            tracks = tracks[:limit]
+
+        print(f"📁 Playlist '{p['name']}': {len(tracks)} new")
+
+        if not tracks:
+            state.setdefault("last_sync", {})[key] = now_iso()
+            save_state(state)
+            continue
+
+        playlist_dir = os.path.join(base_dir, "Playlists", p["name"])
+        os.makedirs(playlist_dir, exist_ok=True)
+
+        for track in tracks:
+            path = download(track, base_dir)
+
+            if not path:
+                continue
+
+            filename = os.path.basename(path)
+            dest = os.path.join(playlist_dir, filename)
+
+            create_symlink(path, dest)
+
+            completed.add(make_key(track))
+            state["completed"] = list(completed)
+            save_state(state)
+
+            print(f"🔗 Linked: {filename}")
+
+        state.setdefault("last_sync", {})[key] = now_iso()
+        save_state(state)
 
 
 def main():
@@ -69,7 +119,7 @@ def main():
     args = parser.parse_args()
 
     state = load_state()
-    completed = set(state["completed"])
+    completed = set(state.get("completed", []))
     base_dir = get_music_dir()
 
     if args.command == "sync":
@@ -87,37 +137,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-def sync_playlists(state, completed, workers, base_dir, limit=None):
-    playlists = get_playlists()
-
-    for p in playlists:
-        key = f"playlist:{p['name']}"
-        since = state["last_sync"].get(key)
-
-        print(f"\n🔍 Checking playlist: {p['name']}")
-
-        try:
-            tracks = get_playlist_tracks(p["id"], since=since)
-        except Exception as e:
-            print(f"⚠️ Skipping playlist '{p['name']}' due to error: {e}")
-            continue
-
-        tracks = [t for t in tracks if make_key(t) not in completed]
-
-        if limit:
-            tracks = tracks[:limit]
-
-        print(f"📁 Playlist '{p['name']}': {len(tracks)} new")
-
-        if not tracks:
-            state["last_sync"][key] = now_iso()
-            save_state(state)
-            continue
-
-        playlist_dir = os.path.join(base_dir, "Playlists", p["name"])
-        os.makedirs(playlist_dir, exist_ok=True)
-
-        run_downloads(tracks, playlist_dir, completed, state, workers)
-
-        state["last_sync"][key] = now_iso()
-        save_state(state)
