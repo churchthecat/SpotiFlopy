@@ -1,16 +1,33 @@
 import argparse
-from dotenv import load_dotenv
 
-# ✅ CRITICAL: load .env before anything else
-load_dotenv()
+from spotiflopy.download import sync_tracks, repair_library
+from spotiflopy.config import save_config
 
-from spotiflopy.spotify import get_liked_tracks
-from spotiflopy.download import repair_library, sync_tracks
+
+def run_init():
+    print("🎧 SpotiFlopy setup\n")
+
+    client_id = input("Spotify Client ID: ").strip()
+    client_secret = input("Spotify Client Secret: ").strip()
+    redirect_uri = input("Redirect URI [http://127.0.0.1:8888/callback]: ").strip()
+
+    if not redirect_uri:
+        redirect_uri = "http://127.0.0.1:8888/callback"
+
+    cfg = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "redirect_uri": redirect_uri
+    }
+
+    save_config(cfg)
+
+    print("✅ Config saved to ~/.spotiflopy.json")
+    print("👉 Now run: spotiflopy sync")
 
 
 def run_sync(args):
-    tracks = get_liked_tracks(limit=args.limit)
-    sync_tracks(tracks)
+    sync_tracks(limit=args.limit)
 
 
 def run_repair(args):
@@ -20,25 +37,26 @@ def run_repair(args):
 def main():
     parser = argparse.ArgumentParser()
 
-    sub = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="cmd")
+
+    # init
+    sub.add_parser("init")
 
     # sync
-    sync_cmd = sub.add_parser("sync")
-    sync_cmd.add_argument("--limit", type=int, default=None)
+    s = sub.add_parser("sync")
+    s.add_argument("--limit", type=int, default=None)
 
     # repair
-    repair_cmd = sub.add_parser("repair")
-    repair_cmd.add_argument("--workers", type=int, default=4)
+    r = sub.add_parser("repair")
+    r.add_argument("--workers", type=int, default=1)
 
     args = parser.parse_args()
 
-    if args.command == "sync":
+    if args.cmd == "init":
+        run_init()
+    elif args.cmd == "sync":
         run_sync(args)
-    elif args.command == "repair":
+    elif args.cmd == "repair":
         run_repair(args)
     else:
         parser.print_help()
-
-
-if __name__ == "__main__":
-    main()

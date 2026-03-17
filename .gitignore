@@ -60,3 +60,15 @@ config.ini
 config.json
 cache/
 *.webm
+
+# Local database
+.spotiflopy.db
+.spotiflopy.db-shm
+.spotiflopy.db-wal
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtualenv
+myenv/
