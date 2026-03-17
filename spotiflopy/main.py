@@ -53,28 +53,6 @@ def sync_liked(state, completed, workers, base_dir, limit=None):
     save_state(state)
 
 
-def sync_playlists(state, completed, workers, base_dir, limit=None):
-    playlists = get_playlists()
-
-    for p in playlists:
-        key = f"playlist:{p['name']}"
-        since = state["last_sync"].get(key)
-
-        tracks = get_playlist_tracks(p["id"], since=since)
-        tracks = [t for t in tracks if make_key(t) not in completed]
-
-        if limit:
-            tracks = tracks[:limit]
-
-        print(f"\n📁 Playlist '{p['name']}': {len(tracks)} new")
-
-        playlist_dir = os.path.join(base_dir, "Playlists", p["name"])
-        os.makedirs(playlist_dir, exist_ok=True)
-
-        run_downloads(tracks, playlist_dir, completed, state, workers)
-
-        state["last_sync"][key] = now_iso()
-        save_state(state)
 
 
 def main():
@@ -109,3 +87,37 @@ def main():
 
 if __name__ == "__main__":
     main()
+def sync_playlists(state, completed, workers, base_dir, limit=None):
+    playlists = get_playlists()
+
+    for p in playlists:
+        key = f"playlist:{p['name']}"
+        since = state["last_sync"].get(key)
+
+        print(f"\n🔍 Checking playlist: {p['name']}")
+
+        try:
+            tracks = get_playlist_tracks(p["id"], since=since)
+        except Exception as e:
+            print(f"⚠️ Skipping playlist '{p['name']}' due to error: {e}")
+            continue
+
+        tracks = [t for t in tracks if make_key(t) not in completed]
+
+        if limit:
+            tracks = tracks[:limit]
+
+        print(f"📁 Playlist '{p['name']}': {len(tracks)} new")
+
+        if not tracks:
+            state["last_sync"][key] = now_iso()
+            save_state(state)
+            continue
+
+        playlist_dir = os.path.join(base_dir, "Playlists", p["name"])
+        os.makedirs(playlist_dir, exist_ok=True)
+
+        run_downloads(tracks, playlist_dir, completed, state, workers)
+
+        state["last_sync"][key] = now_iso()
+        save_state(state)
