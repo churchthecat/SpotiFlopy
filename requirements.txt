@@ -4,3 +4,4 @@ python-dotenv
 browser-cookie3
 requests
 mutagen
+secretstorage

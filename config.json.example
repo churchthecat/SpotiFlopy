@@ -1,0 +1,14 @@
+
+{
+  "spotify": {
+    "client_id": "8439",
+    "client_secret": "79534923",
+    "redirect_uri": "https://.....callback"
+  },
+
+  "download_dir": "/home/user/Music",
+
+  "downloader": {
+    "engine": "ytmusic"
+  }
+}

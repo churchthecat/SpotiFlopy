@@ -1,95 +1,60 @@
+# ----------------------
 # Python
-
-**pycache**/
-*.pyc
+# ----------------------
+__pycache__/
+*.py[cod]
 *.pyo
 *.pyd
 
+# ----------------------
 # Virtual environments
-
-myenv/
+# ----------------------
 venv/
+myenv/
 .env/
 
-# Secrets
-
-.env
-cookies.txt
-# secrets
+# ----------------------
+# Secrets / credentials
+# ----------------------
 .env
 .env.*
-.cache/
-.spotiflofy_token_cache
-.spotiflofy_config.json
 cookies.txt
-
-# python
-__pycache__/
-*.pyc
-
-# Spotify token cache
-
+.spotiflofy_token_cache
 .spotiflopy_token_cache
-
-# Local config
-
+.spotiflofy_config.json
 .spotiflopy_config.json
 
-# Downloaded music
-
+# ----------------------
+# Project data
+# ----------------------
+songs.csv
 Songs/
 
-# Logs
-
-*.log
-
-# OS files
-
-.DS_Store
-Thumbs.db
-
-
-main.py.bak
-
-.env
-.env.*
-.cache/
-.cache
-.spotiflofy_token_cache
-.spotiflofy_config.json
-cookies.txt
-__pycache__/
-*.pyc
-songs.csv
-
-venv/
-myenv/
-
-
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-
-# Virtual environments
-venv/
-myenv/
-.env/
-
-# Tokens / credentials
-.env
-.spotiflofy_token_cache
-cookies.txt
-
-# Data files
-songs.csv
-
-# Build artifacts
-dist/
+# ----------------------
+# Build / packaging
+# ----------------------
 build/
+dist/
 *.egg-info/
 
-# OS files
+# ----------------------
+# Logs / cache
+# ----------------------
+*.log
+.cache/
+.cache
+
+# ----------------------
+# OS / editor junk
+# ----------------------
 .DS_Store
 Thumbs.db
+
+# ----------------------
+# Misc
+# ----------------------
+main.py.bak
+config.ini
+config.json
+cache/
+*.webm
