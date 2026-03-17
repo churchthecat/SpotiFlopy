@@ -1,114 +1,43 @@
 import subprocess
 from pathlib import Path
-from .config import get_music_dir
+from .config import load_config, get_music_dir
 
 
-def sanitize(name):
-    return "".join(c for c in name if c not in r'\/:*?"<>|').strip()
-
-
-def run(cmd):
-    result = subprocess.run(cmd, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        print("---- yt-dlp ERROR ----")
-        print(result.stderr.strip())
-        print("----------------------")
-
-    return result
-
-
-def build_base_cmd(search, filepath):
-    return [
-        "yt-dlp",
-        f"ytsearch1:{search}",
-
-        # Format (audio only)
-        "-f", "bestaudio/best",
-        "--extract-audio",
-        "--audio-format", "mp3",
-        "--audio-quality", "192",
-
-        # Stability
-        "--no-playlist",
-        "--ignore-errors",
-        "--no-warnings",
-
-        # Reduce bot detection
-        "--user-agent", "Mozilla/5.0",
-        "--sleep-interval", "1",
-        "--max-sleep-interval", "3",
-
-        # Metadata
-        "--embed-metadata",
-        "--embed-thumbnail",
-        "--convert-thumbnails", "jpg",
-
-        "-o", str(filepath)
-    ]
+def sanitize(text):
+    return "".join(c for c in text if c.isalnum() or c in " .-_").strip()
 
 
 def download(track):
+    cfg = load_config()
+
     artist = sanitize(track["artist"])
-    title = sanitize(track["track"])
-    album = sanitize(track.get("album", "Unknown Album"))
+    title = sanitize(track["title"])
 
-    music_dir = Path(get_music_dir())
-    album_dir = music_dir / artist / album
-    album_dir.mkdir(parents=True, exist_ok=True)
+    music_dir = Path(get_music_dir()).expanduser()
+    music_dir.mkdir(parents=True, exist_ok=True)
 
-    filepath = album_dir / f"{title}.mp3"
+    filename = f"{artist} - {title}.%(ext)s"
+    output = str(music_dir / filename)
 
-    if filepath.exists():
-        print(f"Skipping (exists): {artist} - {title}")
-        return
+    query = f"ytsearch1:{artist} {title}"
 
-    # 🔥 Better search query
-    search = f"{artist} - {title} official audio -live -remix -cover"
-    print(f"\nSearching: {search}")
-
-    base_cmd = build_base_cmd(search, filepath)
-
-    # ---- STRATEGY 1: Chromium cookies ----
-    print("Trying Chromium cookies...")
-    cmd_chromium = base_cmd + [
-        "--cookies-from-browser", "chromium"
+    cmd = [
+        "yt-dlp",
+        "-x",
+        "--audio-format", "mp3",
+        "-o", output,
+        query
     ]
 
-    result = run(cmd_chromium)
-    if result.returncode == 0 and filepath.exists():
-        print(f"Downloaded (chromium): {artist} - {title}")
-        return
+    # --- cookies handling ---
+    if cfg.get("cookies_from_browser") and cfg["cookies_from_browser"] != "none":
+        cmd += ["--cookies-from-browser", cfg["cookies_from_browser"]]
+    elif cfg.get("cookies_file"):
+        cmd += ["--cookies", cfg["cookies_file"]]
 
-    # ---- STRATEGY 2: cookies.txt fallback ----
-    print("Falling back to cookies.txt...")
+    # --- proxy ---
+    if cfg.get("proxy"):
+        cmd += ["--proxy", cfg["proxy"]]
 
-    cookies_file = Path("cookies.txt")
-    if not cookies_file.exists():
-        print("cookies.txt not found, skipping fallback")
-    else:
-        cmd_cookies = base_cmd + [
-            "--cookies", "cookies.txt"
-        ]
-
-        result = run(cmd_cookies)
-        if result.returncode == 0 and filepath.exists():
-            print(f"Downloaded (cookies.txt): {artist} - {title}")
-            return
-
-    # ---- STRATEGY 3: Retry with delay ----
-    print("Retrying with cookies.txt + delay...")
-
-    if cookies_file.exists():
-        cmd_retry = base_cmd + [
-            "--cookies", "cookies.txt",
-            "--sleep-interval", "2",
-            "--max-sleep-interval", "5"
-        ]
-
-        result = run(cmd_retry)
-        if result.returncode == 0 and filepath.exists():
-            print(f"Downloaded (retry): {artist} - {title}")
-            return
-
-    raise Exception("Download failed after all strategies")
+    print(f"⬇️ Downloading: {artist} - {title}")
+    subprocess.run(cmd)
