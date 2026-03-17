@@ -1,3 +1,10 @@
+#!/usr/bin/env bash
+set -e
+
+echo "== Resetting core files =="
+
+# ---------------- MAIN ----------------
+cat <<'PY' > spotiflopy/main.py
 import argparse
 import os
 
@@ -112,3 +119,56 @@ def main():
 
 if __name__ == "__main__":
     main()
+PY
+
+# ---------------- MATCHER (FAST INDEX) ----------------
+cat <<'PY' > spotiflopy/matcher.py
+import os
+
+def normalize(s):
+    return "".join(c.lower() for c in s if c.isalnum() or c.isspace()).strip()
+
+
+def build_index(base_dir):
+    index = {}
+
+    for root, _, files in os.walk(base_dir):
+        for f in files:
+            if not f.endswith(".mp3"):
+                continue
+
+            key = normalize(f)
+            index[key] = os.path.join(root, f)
+
+    return index
+
+
+def find_in_index(index, track):
+    query = normalize(f"{track['artist']} {track['title']}")
+
+    # exact-ish lookup
+    for k, path in index.items():
+        if query in k:
+            return path
+
+    return None
+PY
+
+# ---------------- PLAYLIST SYMLINK ----------------
+cat <<'PY' > spotiflopy/playlist.py
+import os
+
+def create_symlink(src, dest):
+    try:
+        if os.path.exists(dest):
+            return
+        rel = os.path.relpath(src, os.path.dirname(dest))
+        os.symlink(rel, dest)
+    except Exception as e:
+        print(f"⚠️ Symlink error: {e}")
+PY
+
+echo "== Reinstalling =="
+pip install -e .
+
+echo "== DONE =="
