@@ -1,91 +1,80 @@
 import os
 import subprocess
-from .tagger import tag_file, embed_cover
-from .musicbrainz import enrich_metadata
-from .config import load_config
-from .upgrade import find_existing_versions, should_upgrade, replace_file
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3, APIC
+import requests
 
 
-def download(track, base_dir):
-    cfg = load_config()
+def safe(s):
+    return "".join(c for c in s if c not in '/\\?%*:|"<>').strip()
 
-    fmt = cfg.get("audio_format", "mp3")
-    quality = cfg.get("audio_quality", "320")
 
-    enriched = enrich_metadata(track["artist"], track["title"])
-    if enriched:
-        track.update({k: v for k, v in enriched.items() if v})
+def build_path(track, base_dir):
+    artist = safe(track["artist"])
+    album = safe(track["album"])
+    title = safe(track["title"])
+    track_no = int(track.get("track_number", 0))
 
-    artist = track["artist"]
-    album = track.get("album") or "Unknown Album"
-    title = track["title"]
-    track_num = track.get("track_number", 0)
+    filename = f"{track_no:02d} - {title}.mp3"
+    return os.path.join(base_dir, artist, album, filename)
 
-    safe_artist = artist.replace("/", "-")
-    safe_album = album.replace("/", "-")
-    safe_title = title.replace("/", "-")
 
-    folder = os.path.join(base_dir, safe_artist, safe_album)
-    os.makedirs(folder, exist_ok=True)
-
-    mp3_path, flac_path = find_existing_versions(folder, safe_title)
-
-    # --- upgrade decision ---
-    if should_upgrade(mp3_path, flac_path, fmt):
-        print(f"⬆️ Upgrading to FLAC: {artist} - {title}")
-    else:
-        if flac_path or mp3_path:
-            return flac_path or mp3_path
-
-    ext = "flac" if fmt == "flac" else "mp3"
-    filename = f"{track_num:02d} - {safe_title}.{ext}"
-    path = os.path.join(folder, filename)
-
-    query = f"{artist} - {title}"
-
+def download_audio(query, output):
     cmd = [
         "yt-dlp",
         f"ytsearch1:{query}",
+        "-x",
+        "--audio-format",
+        "mp3",
+        "--audio-quality",
+        "0",
+        "-o",
+        output.replace(".mp3", ".%(ext)s"),
         "--no-playlist",
-        "--quiet"
     ]
 
-    if fmt == "flac":
-        cmd += ["--extract-audio", "--audio-format", "flac"]
-    else:
-        cmd += [
-            "--extract-audio",
-            "--audio-format", "mp3",
-            "--audio-quality", quality
-        ]
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    cmd += [
-        "-o", path,
-        "--embed-metadata",
-        "--embed-thumbnail"
-    ]
 
-    result = subprocess.run(cmd)
-
-    if result.returncode != 0 or not os.path.exists(path):
-        print(f"⚠️ Download failed: {query}")
-        return None
-
-    # tagging
+def apply_tags(file_path, track):
     try:
-        tag_file(path, track)
-    except:
-        pass
+        audio = EasyID3(file_path)
+    except Exception:
+        audio = EasyID3()
 
-    if track.get("cover_url"):
-        try:
-            embed_cover(path, track["cover_url"])
-        except:
-            pass
+    audio["title"] = track["title"]
+    audio["artist"] = track["artist"]
+    audio["album"] = track["album"]
+    audio["tracknumber"] = str(track.get("track_number", 0))
+    audio.save(file_path)
 
-    # --- replace old version ---
-    if mp3_path and fmt == "flac":
-        print(f"🗑 Removing old MP3")
-        replace_file(mp3_path, path)
+    # album art
+    if track.get("art"):
+        img = requests.get(track["art"]).content
+        audio = ID3(file_path)
+        audio["APIC"] = APIC(
+            encoding=3,
+            mime="image/jpeg",
+            type=3,
+            desc="Cover",
+            data=img,
+        )
+        audio.save()
 
-    return path
+
+def download(track, base_dir):
+    path = build_path(track, base_dir)
+
+    if os.path.exists(path):
+        return True
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    query = f"{track['artist']} - {track['title']}"
+
+    try:
+        download_audio(query, path)
+        apply_tags(path, track)
+        return True
+    except Exception:
+        return False
