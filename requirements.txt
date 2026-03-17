@@ -5,3 +5,4 @@ browser-cookie3
 requests
 mutagen
 secretstorage
+pyacoustid

@@ -1,116 +1,121 @@
-import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
-_sp = None
+
+def get_client():
+    return spotipy.Spotify(auth_manager=SpotifyOAuth(
+        scope="user-library-read"
+    ))
 
 
-def get_spotify():
-    global _sp
-
-    if _sp:
-        return _sp
-
-    client_id = os.getenv("SPOTIPY_CLIENT_ID")
-    client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
-    redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI")
-
-    if not client_id or not client_secret or not redirect_uri:
-        raise RuntimeError(
-            "\n❌ Spotify not configured.\n\n"
-            "Run:\n"
-            "  spotiflopy init\n\n"
-            "Or set env vars:\n"
-            "  SPOTIPY_CLIENT_ID\n"
-            "  SPOTIPY_CLIENT_SECRET\n"
-            "  SPOTIPY_REDIRECT_URI\n"
-        )
-
-    _sp = spotipy.Spotify(
-        auth_manager=SpotifyOAuth(
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-            scope="user-library-read playlist-read-private",
-        )
-    )
-
-    return _sp
-
-
-def parse_track(item):
-    t = item["track"]
-
-    if not t:
+# -----------------------------
+# Extract full metadata
+# -----------------------------
+def parse_track(track):
+    if not track:
         return None
 
+    artists = track.get("artists", [])
+    artist_names = ", ".join(a["name"] for a in artists if a.get("name"))
+
+    album = track.get("album", {})
+    images = album.get("images", [])
+
+    cover_url = None
+    if images:
+        # highest resolution first
+        cover_url = images[0].get("url")
+
+    release_date = album.get("release_date", "")
+    year = release_date[:4] if release_date else None
+
     return {
-        "id": t["id"],
-        "title": t["name"],
-        "artist": t["artists"][0]["name"],
-        "album": t["album"]["name"],
-        "track_number": t["track_number"],
-        "duration": int(t["duration_ms"] / 1000),
-        "art": t["album"]["images"][0]["url"] if t["album"]["images"] else None,
+        "id": track.get("id"),
+        "title": track.get("name"),
+        "artist": artist_names,
+        "album": album.get("name"),
+        "track_number": track.get("track_number"),
+        "year": year,
+        "cover_url": cover_url
     }
 
 
-def get_liked_tracks():
-    sp = get_spotify()
+# -----------------------------
+# Get liked tracks (FULL METADATA)
+# -----------------------------
+def get_liked_tracks(limit=None):
+    sp = get_client()
 
     results = []
     offset = 0
+    page_size = 50
 
     while True:
-        res = sp.current_user_saved_tracks(limit=50, offset=offset)
-        items = res["items"]
+        fetch_size = page_size
 
+        if limit:
+            remaining = limit - len(results)
+            if remaining <= 0:
+                break
+            fetch_size = min(page_size, remaining)
+
+        data = sp.current_user_saved_tracks(
+            limit=fetch_size,
+            offset=offset
+        )
+
+        items = data.get("items", [])
         if not items:
             break
 
-        for i in items:
-            t = parse_track(i)
-            if t:
-                results.append(t)
+        for item in items:
+            track = item.get("track")
+            parsed = parse_track(track)
 
-        offset += 50
+            if parsed:
+                results.append(parsed)
+
+        offset += len(items)
 
     return results
 
 
-def get_playlists():
-    sp = get_spotify()
-
-    results = []
-    res = sp.current_user_playlists()
-
-    for p in res["items"]:
-        results.append({
-            "id": p["id"],
-            "name": p["name"]
-        })
-
-    return results
-
-
-def get_playlist_tracks(pid):
-    sp = get_spotify()
+# -----------------------------
+# OPTIONAL: Get playlist tracks
+# -----------------------------
+def get_playlist_tracks(playlist_id, limit=None):
+    sp = get_client()
 
     results = []
     offset = 0
+    page_size = 100
 
     while True:
-        res = sp.playlist_items(pid, limit=100, offset=offset)
-        items = res["items"]
+        fetch_size = page_size
 
+        if limit:
+            remaining = limit - len(results)
+            if remaining <= 0:
+                break
+            fetch_size = min(page_size, remaining)
+
+        data = sp.playlist_items(
+            playlist_id,
+            limit=fetch_size,
+            offset=offset
+        )
+
+        items = data.get("items", [])
         if not items:
             break
 
-        for i in items:
-            t = parse_track(i)
-            if t:
-                results.append(t)
+        for item in items:
+            track = item.get("track")
+            parsed = parse_track(track)
 
-        offset += 100
+            if parsed:
+                results.append(parsed)
+
+        offset += len(items)
 
     return results
