@@ -1,19 +1,21 @@
+cat <<'EOF' > README.md
 # 🎧 SpotiFlopy
 
 Spotify → local music sync tool.
 
-Sync your Spotify liked songs and playlists into a clean, tagged, deduplicated local music library with smart matching, incremental sync, and upgrade support.
+Sync your Spotify liked songs and playlists into a clean, tagged, deduplicated local music library with smart matching, fingerprint verification, and ultra-fast pre-download scoring.
 
 ---
 
 ## ✨ Features
 
 - Sync liked songs and playlists
-- Parallel downloads + retry queue
+- Smart YouTube matching (no wasted downloads)
+- Audio fingerprint verification (Chromaprint)
+- Local fingerprint cache (zero API calls after first match)
 - Incremental sync (no re-downloads)
-- Smart matching (filename + audio fingerprint)
-- Optional AcoustID matching
-- MusicBrainz metadata + album art
+- Clean Spotify-based tagging (artist / album / track)
+- Album artwork embedding
 - Playlist sync using symlinks (no duplicates)
 - MP3 + FLAC support
 - Smart upgrade system (MP3 → FLAC auto replace)
@@ -21,17 +23,17 @@ Sync your Spotify liked songs and playlists into a clean, tagged, deduplicated l
 
 ---
 
-## 🚀 Install
+## 🚀 Install (Simple)
 
-git clone https://github.com/churchthecat/SpotiFlopy.git  
-cd SpotiFlopy  
-python3 -m venv myenv  
-source myenv/bin/activate  
+git clone https://github.com/churchthecat/SpotiFlopy.git
+cd SpotiFlopy
+python3 -m venv myenv
+source myenv/bin/activate
 pip install -e .
 
 ---
 
-## ⚙️ Setup
+## ⚙️ Setup (First Run)
 
 Run:
 
@@ -42,9 +44,10 @@ You will be prompted for:
 - Spotify Client ID
 - Spotify Client Secret
 - Redirect URI
-- Music folder
-- Audio format (mp3 / flac / best)
-- Optional AcoustID API key
+
+Defaults:
+
+http://127.0.0.1:8888/callback
 
 ---
 
@@ -54,7 +57,7 @@ Create an app:
 
 https://developer.spotify.com/dashboard
 
-Set redirect URI EXACTLY:
+Add redirect URI EXACTLY:
 
 http://127.0.0.1:8888/callback
 
@@ -68,40 +71,32 @@ A browser will open for authentication.
 
 ## ☁️ Headless / Server Setup (Cloudflare Proxy)
 
-For servers, VPS, or headless setups, you can use a public HTTPS callback via Cloudflare.
+For servers / VPS / headless:
 
-### 1. Create a public endpoint
+### 1. Create public callback
 
-Use Cloudflare Tunnel (or any reverse proxy) to expose your local callback:
-
-Example:
+Use Cloudflare Tunnel (or similar):
 
 https://your-domain.com/callback
 
-### 2. Add it to Spotify
-
-In your Spotify app dashboard, add:
+### 2. Add to Spotify dashboard
 
 https://your-domain.com/callback
 
-### 3. Configure SpotiFlopy
-
-During `spotiflopy init`, use:
-
-Redirect URI:
+### 3. During init use:
 
 https://your-domain.com/callback
 
-Example project:
-
-https://github.com/1111ij1/spotify-proxy
-
-### 4. Run sync
+### 4. Run:
 
 spotiflopy sync
 
-👉 Spotify will redirect to your public URL  
-👉 Your proxy forwards it to your local app  
+👉 Spotify redirects to your domain  
+👉 Proxy forwards to your app  
+
+Example proxy project:
+
+https://github.com/1111ij1/spotify-proxy
 
 ---
 
@@ -115,32 +110,35 @@ Sync playlists:
 
 spotiflopy sync --playlists
 
-Limit + workers:
+Limit number of tracks:
 
-spotiflopy sync --limit 10 --workers 4
-
-Repair library:
-
-spotiflopy repair
+spotiflopy sync --limit 10
 
 ---
 
-## 🧠 Matching System
+## 🧠 Matching Pipeline
 
-1. Filename match (fast)
-2. Audio fingerprint (Chromaprint / fpcalc)
-3. AcoustID lookup (optional)
+1. YouTube search (no download)
+2. Score results (artist + title + duration)
+3. Download best candidate
+4. Audio fingerprint verification
+5. Store fingerprint (local cache)
+6. Apply Spotify metadata
+
+Result:
+
+✔ Fast  
+✔ Accurate  
+✔ No duplicate downloads  
 
 ---
 
-## 🔼 Smart Upgrade
+## 🔼 Smart Upgrade (MP3 → FLAC)
 
-If switching to FLAC:
-
-- Existing MP3 detected
-- FLAC downloaded
-- MP3 replaced automatically
-- No duplicates kept
+- Detect existing MP3
+- Download FLAC
+- Replace automatically
+- Keep library clean
 
 ---
 
@@ -166,20 +164,20 @@ fpcalc (Chromaprint)
 
 Install (Debian/Ubuntu):
 
-sudo apt install ffmpeg chromium-browser
+sudo apt install ffmpeg chromium-browser libchromaprint-tools
 
 ---
 
 ## ⚠️ Notes
 
 - Spotify does NOT provide audio files
-- Audio is sourced via yt-dlp
+- Audio is sourced via YouTube (yt-dlp)
+- Matching is best-effort but highly accurate
 - FLAC may be re-encoded depending on source
-- AcoustID improves matching accuracy but is optional
 
 ---
 
 ## 📜 License
 
 MIT
-	
+EOF

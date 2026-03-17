@@ -1,72 +1,76 @@
-import os
-from .fingerprint import get_fingerprint, load_cache, save_cache
-from .acoustid import lookup_acoustid
+import json
+import subprocess
+
 
 def normalize(s):
-    return "".join(c.lower() for c in s if c.isalnum() or c.isspace()).strip()
+    return s.lower().replace("&", "and")
 
 
-def build_index(base_dir):
-    index = {}
-    files = []
+def search_youtube(query, limit=5):
+    cmd = [
+        "yt-dlp",
+        f"ytsearch{limit}:{query}",
+        "--dump-json",
+        "--skip-download",
+    ]
 
-    for root, _, fs in os.walk(base_dir):
-        for f in fs:
-            if not f.endswith(".mp3"):
-                continue
-            path = os.path.join(root, f)
-            files.append(path)
-            index[normalize(f)] = path
+    proc = subprocess.run(cmd, capture_output=True, text=True)
 
-    return index, files
+    results = []
+    for line in proc.stdout.splitlines():
+        try:
+            results.append(json.loads(line))
+        except:
+            pass
 
-
-def match_acoustid(track, candidates):
-    target_artist = normalize(track["artist"])
-    target_title = normalize(track["title"])
-
-    for path in candidates:
-        results = lookup_acoustid(path)
-        if not results:
-            continue
-
-        for artists, title in results:
-            a = normalize(" ".join(artists))
-            t = normalize(title)
-
-            if target_title in t and target_artist in a:
-                return path
-
-    return None
+    return results
 
 
-def find_in_index(index_data, track):
-    index, files = index_data
+def score_result(video, track):
+    score = 0
 
-    query = normalize(f"{track['artist']} {track['title']}")
+    title = normalize(video.get("title", ""))
+    uploader = normalize(video.get("uploader", ""))
 
-    # 1. fast filename match
-    for k, path in index.items():
-        if query in k:
-            return path
+    artist = normalize(track["artist"])
+    song = normalize(track["title"])
 
-    # 2. fingerprint cache match
-    cache = load_cache()
-    for path in files:
-        fp = get_fingerprint(path, cache)
-        if not fp:
-            continue
+    if artist in title or artist in uploader:
+        score += 40
 
-        if query[:10] in fp:
-            save_cache(cache)
-            return path
+    if song in title:
+        score += 40
 
-    save_cache(cache)
+    duration = video.get("duration")
+    if duration and track.get("duration"):
+        if abs(duration - track["duration"]) < 5:
+            score += 15
 
-    # 3. acoustid (slow but accurate)
-    print("🧬 AcoustID matching...")
-    match = match_acoustid(track, files)
-    if match:
-        return match
+    if "official" in title:
+        score += 5
 
-    return None
+    if "vevo" in uploader or "official" in uploader:
+        score += 10
+
+    return score
+
+
+def best_match(track):
+    query = f"{track['artist']} {track['title']}"
+
+    results = search_youtube(query)
+
+    best = None
+    best_score = 0
+
+    for r in results:
+        s = score_result(r, track)
+
+        if s > best_score:
+            best_score = s
+            best = r
+
+    if best_score < 50:
+        return None
+
+    return best["webpage_url"]
