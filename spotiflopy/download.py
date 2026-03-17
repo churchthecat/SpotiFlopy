@@ -2,6 +2,7 @@ import os
 import sqlite3
 import subprocess
 import tempfile
+import json
 
 from .tagger import tag_file, embed_cover
 from .spotify import get_liked_tracks
@@ -10,122 +11,94 @@ from .verification import verify_audio
 DB_PATH = ".spotiflopy.db"
 MUSIC_DIR = os.path.expanduser("~/Music")
 
-# -----------------------------
-# DB (single connection, safe)
-# -----------------------------
 _db_conn = None
+
 
 def get_db():
     global _db_conn
 
     if _db_conn is None:
-        _db_conn = sqlite3.connect(
-            DB_PATH,
-            timeout=30,
-            isolation_level=None
-        )
-
+        _db_conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
         _db_conn.execute("PRAGMA journal_mode=WAL;")
         _db_conn.execute("PRAGMA synchronous=NORMAL;")
 
         cur = _db_conn.cursor()
-
         cur.execute("PRAGMA table_info(tracks)")
-        columns = [row[1] for row in cur.fetchall()]
+        cols = [r[1] for r in cur.fetchall()]
 
-        def add_column(name, definition):
-            if name not in columns:
-                print(f"[DB] Adding column: {name}")
-                cur.execute(f"ALTER TABLE tracks ADD COLUMN {name} {definition}")
+        def add(name, typ):
+            if name not in cols:
+                cur.execute(f"ALTER TABLE tracks ADD COLUMN {name} {typ}")
 
-        add_column("youtube_url", "TEXT")
-        add_column("album", "TEXT")
-        add_column("track_number", "INTEGER")
-        add_column("year", "TEXT")
-        add_column("cover_url", "TEXT")
+        add("youtube_url", "TEXT")
 
     return _db_conn
 
 
 # -----------------------------
-# SEARCH (filtered)
+# SEARCH (FAST + SCORING)
 # -----------------------------
-def clean_query(artist, title):
-    import re
-
-    # keep only first artist
-    artist = artist.split(",")[0]
-
-    # remove (...) and [...]
-    title = re.sub(r"\(.*?\)|\[.*?\]", "", title)
-
-    # remove common junk
-    junk = [
-        "remaster", "remastered", "version",
-        "feat.", "ft.", "official", "audio",
-        "lyrics", "video"
+def search_youtube(query, max_results=3):
+    cmd = [
+        "yt-dlp",
+        f"ytsearch{max_results}:{query}",
+        "--dump-json",
+        "--quiet",
+        "--no-playlist"
     ]
 
-    t = title.lower()
-    for j in junk:
-        t = t.replace(j, "")
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
-    title = t.strip()
+    if result.returncode != 0:
+        return []
 
-    return f"{artist} {title}".strip()
+    videos = []
+    for line in result.stdout.splitlines():
+        try:
+            data = json.loads(line)
+            title = data.get("title", "").lower()
 
-
-def search_youtube(query, max_results=5):
-    import json
-    import subprocess
-
-    def run_search(q):
-        cmd = [
-            "yt-dlp",
-            f"ytsearch{max_results}:{q}",
-            "--dump-json",
-            "--no-playlist",
-            "--quiet"
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-
-        if result.returncode != 0:
-            return []
-
-        videos = []
-
-        for line in result.stdout.splitlines():
-            try:
-                data = json.loads(line)
-                videos.append({
-                    "url": data.get("webpage_url"),
-                    "title": data.get("title")
-                })
-            except:
+            # filter garbage early
+            if any(x in title for x in ["remix", "live", "cover", "sped", "nightcore"]):
                 continue
 
-        return videos
+            videos.append({
+                "url": data["webpage_url"],
+                "title": data["title"],
+                "duration": data.get("duration", 0)
+            })
+        except:
+            continue
 
-    # pass 1: cleaned query
-    videos = run_search(query)
+    return videos
 
-    if videos:
-        return videos
 
-    # pass 2: aggressive clean
-    parts = query.split(" - ")
-    if len(parts) == 2:
-        clean = clean_query(parts[0], parts[1])
-        print(f"[SEARCH FIX] {clean}")
-        videos = run_search(clean)
-        if videos:
-            return videos
+# -----------------------------
+# PRE-SCORE (FAST FILTER)
+# -----------------------------
+def score_candidate(track, video):
+    score = 0
 
-    # pass 3: title only
-    title_only = query.split(" - ")[-1]
-    print(f"[FALLBACK] {title_only}")
-    return run_search(title_only)
+    title = video["title"].lower()
+    artist = track["artist"].lower()
+    name = track["title"].lower()
+
+    if artist.split(",")[0] in title:
+        score += 2
+
+    if name[:8] in title:
+        score += 2
+
+    # duration check (fast, before download)
+    expected = track.get("duration_ms")
+    if expected and video.get("duration"):
+        diff = abs(video["duration"] - (expected / 1000))
+        if diff < 5:
+            score += 3
+        elif diff < 10:
+            score += 1
+
+    return score
 
 
 # -----------------------------
@@ -142,8 +115,11 @@ def download_candidate(url, temp_path):
         "--no-playlist"
     ]
 
-    result = subprocess.run(cmd)
-    return result.returncode == 0 and os.path.exists(temp_path)
+    try:
+        subprocess.run(cmd, timeout=120)
+        return os.path.exists(temp_path)
+    except:
+        return False
 
 
 # -----------------------------
@@ -152,185 +128,102 @@ def download_candidate(url, temp_path):
 def download(track, base_dir=MUSIC_DIR):
     db = get_db()
 
-    artist = track.get("artist")
+    artist = track["artist"]
     album = track.get("album") or "Unknown Album"
-    title = track.get("title")
+    title = track["title"]
     track_num = track.get("track_number") or 0
 
-    safe_artist = artist.replace("/", "-")
-    safe_album = album.replace("/", "-")
-    safe_title = title.replace("/", "-")
-
-    folder = os.path.join(base_dir, safe_artist, safe_album)
+    folder = os.path.join(base_dir, artist, album)
     os.makedirs(folder, exist_ok=True)
 
-    final_path = os.path.join(
-        folder,
-        f"{int(track_num):02d} - {safe_title}.mp3"
-    )
+    final_path = os.path.join(folder, f"{int(track_num):02d} - {title}.mp3")
 
+    # ✅ instant skip if exists
     if os.path.exists(final_path):
         return final_path, None
 
     # -----------------------------
-    # 1. CHECK CACHE
+    # CACHE
     # -----------------------------
-    cached = None
     row = db.execute(
-        "SELECT youtube_url FROM tracks WHERE track_id = ?",
-        (track.get("id"),)
+        "SELECT youtube_url FROM tracks WHERE track_id=?",
+        (track["id"],)
     ).fetchone()
 
     if row and row[0]:
-        cached = row[0]
-        print(f"[CACHE] Using saved URL")
+        print("[CACHE]")
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
 
-    # -----------------------------
-    # 2. TRY CACHED FIRST
-    # -----------------------------
-    if cached:
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            temp_path = tmp.name
-
-        if download_candidate(cached, temp_path):
-            score = verify_audio(temp_path, track)
-
+        if download_candidate(row[0], tmp):
+            score = verify_audio(tmp, track)
             if score >= 0.8:
-                print("[CACHE HIT] valid")
-
-                os.rename(temp_path, final_path)
-
+                os.rename(tmp, final_path)
                 tag_file(final_path, track)
-                if track.get("cover_url"):
-                    embed_cover(final_path, track["cover_url"])
-
-                return final_path, cached
-
+                return final_path, row[0]
             else:
-                print("[CACHE FAIL] re-searching")
-                os.remove(temp_path)
+                os.remove(tmp)
 
     # -----------------------------
-    # 3. SEARCH
+    # SEARCH + SCORE
     # -----------------------------
     query = f"{artist} - {title}"
-    candidates = search_youtube(query, max_results=5)
+    results = search_youtube(query)
 
-    print(f"[SEARCH] {query} → {len(candidates)}")
+    scored = sorted(
+        results,
+        key=lambda v: score_candidate(track, v),
+        reverse=True
+    )
 
-    for i, vid in enumerate(candidates, 1):
-        print(f"[TRY {i}] {vid['title']}")
+    for vid in scored[:2]:  # only try best 2
+        print(f"[TRY] {vid['title']}")
 
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            temp_path = tmp.name
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3").name
 
-        if not download_candidate(vid["url"], temp_path):
+        if not download_candidate(vid["url"], tmp):
             continue
 
-        score = verify_audio(temp_path, track)
-        print(f"[VERIFY] score={score:.2f}")
+        score = verify_audio(tmp, track)
+        print(f"[VERIFY] {score:.2f}")
 
         if score >= 0.8:
-            print("[ACCEPT]")
-
-            os.rename(temp_path, final_path)
-
+            os.rename(tmp, final_path)
             tag_file(final_path, track)
-            if track.get("cover_url"):
-                embed_cover(final_path, track["cover_url"])
 
             return final_path, vid["url"]
 
-        os.remove(temp_path)
+        os.remove(tmp)
 
     print(f"❌ FAILED: {query}")
     return None, None
 
 
 # -----------------------------
-# SYNC (single writer)
+# SYNC
 # -----------------------------
-def sync_tracks(input_tracks=None):
+def sync_tracks(limit=None):
     db = get_db()
 
-    if input_tracks is None:
-        tracks = get_liked_tracks()
-    elif isinstance(input_tracks, int):
-        tracks = get_liked_tracks(limit=input_tracks)
-    elif isinstance(input_tracks, list):
-        tracks = input_tracks
-    else:
-        raise ValueError("sync_tracks expects None, int, or list")
-
+    tracks = get_liked_tracks(limit=limit)
     print(f"🔄 Syncing {len(tracks)} tracks...")
 
     for track in tracks:
-        path, youtube_url = download(track)
+        path, url = download(track)
 
         if not path:
             continue
 
-        try:
-            db.execute("BEGIN IMMEDIATE")
+        db.execute("""
+            INSERT OR REPLACE INTO tracks
+            (track_id, file, artist, title, album, youtube_url)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            track["id"],
+            path,
+            track["artist"],
+            track["title"],
+            track.get("album"),
+            url
+        ))
 
-            db.execute("""
-                INSERT OR REPLACE INTO tracks
-                (track_id, file, artist, title, album, track_number, year, cover_url, youtube_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                track.get("id"),
-                path,
-                track.get("artist"),
-                track.get("title"),
-                track.get("album"),
-                track.get("track_number"),
-                track.get("year"),
-                track.get("cover_url"),
-                youtube_url
-            ))
-
-            db.commit()
-
-        except Exception as e:
-            db.rollback()
-            print("[DB ERROR]", e)
-
-    print("✅ Sync complete")
-
-
-# -----------------------------
-# REPAIR
-# -----------------------------
-def repair_track(row):
-    file_path = row[1]
-
-    if not file_path or not os.path.exists(file_path):
-        return
-
-    track = {
-        "title": row[7],
-        "artist": row[6],
-        "album": row[10],
-        "track_number": row[11],
-        "year": row[12],
-        "cover_url": row[13]
-    }
-
-    tag_file(file_path, track)
-
-    if track.get("cover_url"):
-        embed_cover(file_path, track["cover_url"])
-
-    print(f"[OK] {file_path}")
-
-
-def repair_library(workers=4):
-    db = get_db()
-    rows = db.execute("SELECT * FROM tracks").fetchall()
-
-    print(f"🔧 Repairing {len(rows)} tracks...")
-
-    for row in rows:
-        repair_track(row)
-
-    print("✅ Repair complete")
+    print("✅ Done")
