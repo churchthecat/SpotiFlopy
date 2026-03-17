@@ -1,6 +1,6 @@
 # 🎧 SpotiFlopy
 
-Production-grade Spotify → local music sync tool.
+Spotify → local music sync tool.
 
 Sync your Spotify liked songs and playlists into a clean, tagged, deduplicated local music library with smart matching, incremental sync, and upgrade support.
 
@@ -182,3 +182,4 @@ sudo apt install ffmpeg chromium-browser
 ## 📜 License
 
 MIT
+	
