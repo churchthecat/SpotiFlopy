@@ -13,10 +13,14 @@ def init():
     client_id = input("Spotify Client ID: ").strip()
     client_secret = input("Spotify Client Secret: ").strip()
 
-    default_music = str(Path.home() / "Music" / "SpotiFlopy")
-    music_dir = input(f"Music directory [{default_music}]: ").strip()
+    default_music_display = "~/Music/SpotiFlopy"
+    music_dir = input(f"Music directory [{default_music_display}]: ").strip()
+
     if not music_dir:
-        music_dir = default_music
+        music_dir = default_music_display
+
+    # normalize but KEEP ~ in config (important)
+    music_dir = music_dir.replace(str(Path.home()), "~")
 
     backend = input("Download backend (yt-dlp) [yt-dlp]: ").strip()
     if not backend:
@@ -27,7 +31,6 @@ def init():
         cookies = "chromium"
 
     cookies_file = input("Cookies.txt path (optional): ").strip()
-
     proxy = input("Proxy (optional, e.g. http://127.0.0.1:8080): ").strip()
 
     config = {

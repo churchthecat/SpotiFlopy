@@ -13,7 +13,7 @@ def download(track):
     artist = sanitize(track["artist"])
     title = sanitize(track["title"])
 
-    music_dir = Path(get_music_dir()).expanduser()
+    music_dir = Path(get_music_dir()).expanduser().resolve()
     music_dir.mkdir(parents=True, exist_ok=True)
 
     filename = f"{artist} - {title}.%(ext)s"
