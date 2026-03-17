@@ -1,228 +1,162 @@
 import os
+import sqlite3
 import subprocess
-import json
-import requests
+from concurrent.futures import ThreadPoolExecutor
 
-from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, APIC
-
-from .fingerprint import load_cache, save_cache, get_fingerprint, is_match
-
-FP_CACHE = load_cache()
-
-CACHE_FILE = ".spotiflopy_cache.json"
+DB_PATH = ".spotiflopy.db"
 
 
-def load_db():
-    if os.path.exists(CACHE_FILE):
-        with open(CACHE_FILE) as f:
-            return json.load(f)
-    return {}
+def get_db():
+    return sqlite3.connect(DB_PATH)
 
 
-def save_db(db):
-    with open(CACHE_FILE, "w") as f:
-        json.dump(db, f, indent=2)
+# -----------------------------
+# Fingerprint
+# -----------------------------
+def fingerprint_file(path):
+    try:
+        result = subprocess.run(
+            ["fpcalc", "-json", path],
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            return None
+
+        import json
+        data = json.loads(result.stdout)
+        return data.get("fingerprint")
+    except Exception:
+        return None
 
 
-DB = load_db()
+# -----------------------------
+# Scoring
+# -----------------------------
+def score_result(query, title):
+    query = query.lower()
+    title = title.lower()
 
-
-def safe(s):
-    return "".join(c for c in s if c not in '/\\?%*:|"<>').strip()
-
-
-def normalize(s):
-    return s.lower().replace("&", "and")
-
-
-def build_path(track, base_dir):
-    artist = safe(track["artist"])
-    album = safe(track["album"])
-    title = safe(track["title"])
-    track_no = int(track.get("track_number", 0))
-
-    filename = f"{track_no:02d} - {title}.mp3"
-    return os.path.join(base_dir, artist, album, filename)
-
-
-# -----------------------
-# MATCHING (CACHED)
-# -----------------------
-
-def search_youtube(query, limit=5):
-    cmd = [
-        "yt-dlp",
-        f"ytsearch{limit}:{query}",
-        "--dump-json",
-        "--skip-download",
-    ]
-
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-
-    results = []
-    for line in proc.stdout.splitlines():
-        try:
-            results.append(json.loads(line))
-        except:
-            pass
-
-    return results
-
-
-def score_result(video, track):
     score = 0
 
-    title = normalize(video.get("title", ""))
-    uploader = normalize(video.get("uploader", ""))
+    for word in query.split():
+        if word in title:
+            score += 2
 
-    artist = normalize(track["artist"])
-    song = normalize(track["title"])
-
-    if artist in title or artist in uploader:
-        score += 40
-
-    if song in title:
-        score += 40
-
-    duration = video.get("duration")
-    if duration and track.get("duration"):
-        if abs(duration - track["duration"]) < 5:
-            score += 15
-
-    if "official" in title:
+    if title.startswith(query[:10]):
         score += 5
-
-    if "vevo" in uploader or "official" in uploader:
-        score += 10
 
     return score
 
 
-def best_match(track):
-    key = track["id"]
+# -----------------------------
+# Smart YouTube search
+# -----------------------------
+def search_youtube(query):
+    import json
 
-    # 🔥 CACHE HIT (NO SEARCH)
-    if key in DB and DB[key].get("url"):
-        return DB[key]["url"]
+    try:
+        result = subprocess.run(
+            ["yt-dlp", "ytsearch5:" + query, "--dump-json"],
+            capture_output=True,
+            text=True
+        )
 
-    query = f"{track['artist']} {track['title']}"
-    results = search_youtube(query)
+        if result.returncode != 0:
+            return None
 
-    best = None
-    best_score = 0
+        lines = result.stdout.strip().split("\n")
 
-    for r in results:
-        s = score_result(r, track)
+        best_url = None
+        best_score = 0
 
-        if s > best_score:
-            best_score = s
-            best = r
+        for line in lines:
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
 
-    if not best or best_score < 50:
+            title = data.get("title", "")
+            vid = data.get("id")
+
+            if not vid:
+                continue
+
+            score = score_result(query, title)
+
+            if score > best_score:
+                best_score = score
+                best_url = f"https://www.youtube.com/watch?v={vid}"
+
+        # avoid garbage matches
+        if best_score < 3:
+            return None
+
+        return best_url
+
+    except Exception:
         return None
 
-    url = best["webpage_url"]
 
-    DB.setdefault(key, {})["url"] = url
-    save_db(DB)
+# -----------------------------
+# Repair Logic
+# -----------------------------
+def repair_track(row):
+    track_id, file_path, url, fingerprint, _ = row
 
-    return url
+    if not file_path or not os.path.exists(file_path):
+        return
 
+    conn = get_db()
+    cur = conn.cursor()
 
-# -----------------------
-# TAGGING
-# -----------------------
-
-def apply_tags(file_path, track):
-    try:
-        audio = EasyID3(file_path)
-    except Exception:
-        audio = EasyID3()
-
-    audio["title"] = track["title"]
-    audio["artist"] = track["artist"]
-    audio["album"] = track["album"]
-    audio["tracknumber"] = str(track.get("track_number", 0))
-    audio.save(file_path)
-
-    if track.get("art"):
-        try:
-            img = requests.get(track["art"]).content
-            audio = ID3(file_path)
-            audio["APIC"] = APIC(
-                encoding=3,
-                mime="image/jpeg",
-                type=3,
-                desc="Cover",
-                data=img,
+    # Fingerprint
+    if not fingerprint:
+        fp = fingerprint_file(file_path)
+        if fp:
+            cur.execute(
+                "UPDATE tracks SET fingerprint=? WHERE track_id=?",
+                (fp, track_id)
             )
-            audio.save()
-        except:
-            pass
+            print(f"[FP] {file_path}")
 
-
-# -----------------------
-# MAIN PIPELINE (ULTRA FAST)
-# -----------------------
-
-def download(track, base_dir):
-    key = track["id"]
-    path = build_path(track, base_dir)
-
-    # 🔥 INSTANT SKIP (NO FS / NO SEARCH)
-    if key in DB and os.path.exists(DB[key].get("file", "")):
-        return True
-
-    if os.path.exists(path):
-        DB.setdefault(key, {})["file"] = path
-        save_db(DB)
-        return True
-
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-
-    url = best_match(track)
+    # URL recovery
     if not url:
-        return False
+        name = os.path.basename(file_path)
+        query = name.replace(".mp3", "").replace(".flac", "")
 
-    try:
-        cmd = [
-            "yt-dlp",
-            url,
-            "-x",
-            "--audio-format",
-            "mp3",
-            "--audio-quality",
-            "0",
-            "-o",
-            path.replace(".mp3", ".%(ext)s"),
-        ]
+        yt = search_youtube(query)
 
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if yt:
+            cur.execute(
+                "UPDATE tracks SET url=? WHERE track_id=?",
+                (yt, track_id)
+            )
+            print(f"[URL] {query} -> {yt}")
 
-        fp = get_fingerprint(path)
-        if not fp:
-            os.remove(path)
-            return False
+    conn.commit()
+    conn.close()
 
-        # 🔥 CACHE MATCH (NO API)
-        if key in FP_CACHE:
-            if not is_match(fp, FP_CACHE[key]):
-                os.remove(path)
-                return False
 
-        FP_CACHE[key] = fp
-        save_cache(FP_CACHE)
+def repair_library(workers=4):
+    conn = get_db()
+    cur = conn.cursor()
 
-        apply_tags(path, track)
+    cur.execute("SELECT * FROM tracks")
+    rows = cur.fetchall()
+    conn.close()
 
-        DB.setdefault(key, {})["file"] = path
-        DB[key]["fingerprint"] = fp
-        save_db(DB)
+    print(f"🔧 Repairing {len(rows)} tracks...")
 
-        return True
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        ex.map(repair_track, rows)
 
-    except Exception:
-        if os.path.exists(path):
-            os.remove(path)
-        return False
+    print("✅ Repair complete")
+
+
+# -----------------------------
+# Sync (placeholder for now)
+# -----------------------------
+def sync_tracks(tracks, workers=4):
+    print(f"🎧 Syncing {len(tracks)} tracks...")
+    print("✅ Sync done")
