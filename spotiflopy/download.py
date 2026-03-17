@@ -150,6 +150,8 @@ def download_candidate(url, temp_path):
 # MAIN DOWNLOAD
 # -----------------------------
 def download(track, base_dir=MUSIC_DIR):
+    db = get_db()
+
     artist = track.get("artist")
     album = track.get("album") or "Unknown Album"
     title = track.get("title")
@@ -170,9 +172,50 @@ def download(track, base_dir=MUSIC_DIR):
     if os.path.exists(final_path):
         return final_path, None
 
-    query = f"{artist} - {title}"
+    # -----------------------------
+    # 1. CHECK CACHE
+    # -----------------------------
+    cached = None
+    row = db.execute(
+        "SELECT youtube_url FROM tracks WHERE track_id = ?",
+        (track.get("id"),)
+    ).fetchone()
 
+    if row and row[0]:
+        cached = row[0]
+        print(f"[CACHE] Using saved URL")
+
+    # -----------------------------
+    # 2. TRY CACHED FIRST
+    # -----------------------------
+    if cached:
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            temp_path = tmp.name
+
+        if download_candidate(cached, temp_path):
+            score = verify_audio(temp_path, track)
+
+            if score >= 0.8:
+                print("[CACHE HIT] valid")
+
+                os.rename(temp_path, final_path)
+
+                tag_file(final_path, track)
+                if track.get("cover_url"):
+                    embed_cover(final_path, track["cover_url"])
+
+                return final_path, cached
+
+            else:
+                print("[CACHE FAIL] re-searching")
+                os.remove(temp_path)
+
+    # -----------------------------
+    # 3. SEARCH
+    # -----------------------------
+    query = f"{artist} - {title}"
     candidates = search_youtube(query, max_results=5)
+
     print(f"[SEARCH] {query} → {len(candidates)}")
 
     for i, vid in enumerate(candidates, 1):
@@ -187,7 +230,7 @@ def download(track, base_dir=MUSIC_DIR):
         score = verify_audio(temp_path, track)
         print(f"[VERIFY] score={score:.2f}")
 
-        if score >= 0.75:
+        if score >= 0.8:
             print("[ACCEPT]")
 
             os.rename(temp_path, final_path)

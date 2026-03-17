@@ -29,6 +29,8 @@ cookies.txt
 # ----------------------
 songs.csv
 Songs/
+.spotiflopy_cache.json
+
 
 # ----------------------
 # Build / packaging
