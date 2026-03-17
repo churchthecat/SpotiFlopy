@@ -1,73 +1,62 @@
-import os
-import acoustid
-
-ACOUSTID_KEY = os.getenv("ACOUSTID_API_KEY")
+from mutagen.mp3 import MP3
 
 
-# -----------------------------
-# FINGERPRINT
-# -----------------------------
-def fingerprint_file(path):
-    try:
-        duration, fp = acoustid.fingerprint_file(path)
-        return duration, fp
-    except Exception:
-        return None, None
-
-
-# -----------------------------
-# LOOKUP
-# -----------------------------
-def lookup_acoustid(path):
-    if not ACOUSTID_KEY:
-        return None
+def verify_audio(file_path, track):
+    """
+    Returns score between 0.0 and 1.0
+    """
 
     try:
-        results = acoustid.match(ACOUSTID_KEY, path)
-
-        best = None
-        best_score = 0
-
-        for score, rid, title, artist in results:
-            if score > best_score:
-                best_score = score
-                best = {
-                    "score": score,
-                    "title": title,
-                    "artist": artist
-                }
-
-        return best
-
-    except Exception:
-        return None
-
-
-# -----------------------------
-# VERIFY MATCH
-# -----------------------------
-def verify_audio(path, track):
-    result = lookup_acoustid(path)
-
-    if not result:
+        audio = MP3(file_path)
+    except Exception as e:
+        print("[VERIFY ERROR]", e)
         return 0.0
 
-    score = result["score"]
+    score = 0.0
 
-    expected_title = (track.get("title") or "").lower()
-    expected_artist = (track.get("artist") or "").lower()
+    # -----------------------------
+    # 1. Duration check (STRONG)
+    # -----------------------------
+    expected = track.get("duration_ms")
+    if expected:
+        expected_sec = expected / 1000
+        actual_sec = audio.info.length
 
-    found_title = (result.get("title") or "").lower()
-    found_artist = (result.get("artist") or "").lower()
+        diff = abs(actual_sec - expected_sec)
 
-    meta_score = 0
+        if diff < 2:
+            score += 0.5
+        elif diff < 5:
+            score += 0.3
+        elif diff < 10:
+            score += 0.1
+        else:
+            print(f"[VERIFY] duration mismatch: {actual_sec:.1f}s vs {expected_sec:.1f}s")
 
-    if expected_title and expected_title in found_title:
-        meta_score += 0.5
+    # -----------------------------
+    # 2. Bitrate check
+    # -----------------------------
+    bitrate = audio.info.bitrate / 1000  # kbps
 
-    if expected_artist and expected_artist in found_artist:
-        meta_score += 0.5
+    if bitrate >= 256:
+        score += 0.3
+    elif bitrate >= 192:
+        score += 0.2
+    elif bitrate >= 128:
+        score += 0.1
+    else:
+        print(f"[VERIFY] low bitrate: {bitrate}kbps")
 
-    final_score = score * 0.7 + meta_score * 0.3
+    # -----------------------------
+    # 3. File size sanity (weak)
+    # -----------------------------
+    import os
+    size_mb = os.path.getsize(file_path) / (1024 * 1024)
 
-    return final_score
+    if size_mb > 3:
+        score += 0.1
+
+    # -----------------------------
+    # clamp
+    # -----------------------------
+    return min(score, 1.0)
