@@ -8,7 +8,24 @@ from mutagen.id3 import ID3, APIC
 
 from .fingerprint import load_cache, save_cache, get_fingerprint, is_match
 
-cache = load_cache()
+FP_CACHE = load_cache()
+
+CACHE_FILE = ".spotiflopy_cache.json"
+
+
+def load_db():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE) as f:
+            return json.load(f)
+    return {}
+
+
+def save_db(db):
+    with open(CACHE_FILE, "w") as f:
+        json.dump(db, f, indent=2)
+
+
+DB = load_db()
 
 
 def safe(s):
@@ -30,7 +47,7 @@ def build_path(track, base_dir):
 
 
 # -----------------------
-# YOUTUBE SEARCH + SCORING
+# MATCHING (CACHED)
 # -----------------------
 
 def search_youtube(query, limit=5):
@@ -83,6 +100,12 @@ def score_result(video, track):
 
 
 def best_match(track):
+    key = track["id"]
+
+    # 🔥 CACHE HIT (NO SEARCH)
+    if key in DB and DB[key].get("url"):
+        return DB[key]["url"]
+
     query = f"{track['artist']} {track['title']}"
     results = search_youtube(query)
 
@@ -99,26 +122,12 @@ def best_match(track):
     if not best or best_score < 50:
         return None
 
-    return best["webpage_url"]
+    url = best["webpage_url"]
 
+    DB.setdefault(key, {})["url"] = url
+    save_db(DB)
 
-# -----------------------
-# FINGERPRINT CACHE
-# -----------------------
-
-def local_match(fp, track):
-    key = track["id"] or f"{track['artist']}::{track['title']}".lower()
-
-    if key in cache:
-        return is_match(fp, cache[key])
-
-    return None
-
-
-def store_fingerprint(fp, track):
-    key = track["id"] or f"{track['artist']}::{track['title']}".lower()
-    cache[key] = fp
-    save_cache(cache)
+    return url
 
 
 # -----------------------
@@ -154,19 +163,25 @@ def apply_tags(file_path, track):
 
 
 # -----------------------
-# MAIN DOWNLOAD PIPELINE
+# MAIN PIPELINE (ULTRA FAST)
 # -----------------------
 
 def download(track, base_dir):
+    key = track["id"]
     path = build_path(track, base_dir)
 
+    # 🔥 INSTANT SKIP (NO FS / NO SEARCH)
+    if key in DB and os.path.exists(DB[key].get("file", "")):
+        return True
+
     if os.path.exists(path):
+        DB.setdefault(key, {})["file"] = path
+        save_db(DB)
         return True
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     url = best_match(track)
-
     if not url:
         return False
 
@@ -190,14 +205,20 @@ def download(track, base_dir):
             os.remove(path)
             return False
 
-        match = local_match(fp, track)
+        # 🔥 CACHE MATCH (NO API)
+        if key in FP_CACHE:
+            if not is_match(fp, FP_CACHE[key]):
+                os.remove(path)
+                return False
 
-        if match is False:
-            os.remove(path)
-            return False
+        FP_CACHE[key] = fp
+        save_cache(FP_CACHE)
 
-        store_fingerprint(fp, track)
         apply_tags(path, track)
+
+        DB.setdefault(key, {})["file"] = path
+        DB[key]["fingerprint"] = fp
+        save_db(DB)
 
         return True
 

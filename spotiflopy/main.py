@@ -2,12 +2,13 @@ import argparse
 import os
 from dotenv import load_dotenv, set_key
 
-# 🔥 LOAD ENV HERE (critical)
+from . import __version__
+
+# load .env
 load_dotenv()
 
 from .spotify import get_liked_tracks
 from .downloader import download
-
 
 ENV_FILE = ".env"
 
@@ -53,6 +54,8 @@ def run_sync(args):
 
 def main():
     parser = argparse.ArgumentParser(prog="spotiflopy")
+
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
     sub = parser.add_subparsers(dest="command")
 
