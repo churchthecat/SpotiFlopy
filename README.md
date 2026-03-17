@@ -182,3 +182,4 @@ sudo apt install ffmpeg chromium-browser
 ## 📜 License
 
 MIT
+	
