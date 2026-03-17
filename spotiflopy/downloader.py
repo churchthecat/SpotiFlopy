@@ -2,8 +2,19 @@ import os
 import subprocess
 import re
 import json
+from difflib import SequenceMatcher
 
 from .library import get_track_path
+
+CACHE_FILE = os.path.expanduser("~/.cache/spotiflopy_cache.json")
+
+
+# ------------------------
+# Utils
+# ------------------------
+
+def similarity(a, b):
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
 def clean_title(title: str) -> str:
@@ -12,11 +23,10 @@ def clean_title(title: str) -> str:
         r"- remaster.*",
     ]
 
-    cleaned = title
     for p in patterns:
-        cleaned = re.sub(p, "", cleaned, flags=re.IGNORECASE)
+        title = re.sub(p, "", title, flags=re.IGNORECASE)
 
-    return re.sub(r"\s+", " ", cleaned).strip()
+    return re.sub(r"\s+", " ", title).strip()
 
 
 def is_bad_title(title: str) -> bool:
@@ -26,33 +36,41 @@ def is_bad_title(title: str) -> bool:
     return any(w in t for w in bad_words)
 
 
-def pick_best_video(results, target_duration):
-    best = None
-    best_diff = 999
+def is_good_channel(channel: str) -> bool:
+    if not channel:
+        return False
 
-    for r in results:
-        title = r.get("title", "")
-        duration = r.get("duration")
+    good = ["vevo", "official", "topic"]
 
-        if not duration:
-            continue
+    c = channel.lower()
+    return any(g in c for g in good)
 
-        if is_bad_title(title):
-            continue
 
-        diff = abs(duration - target_duration)
+# ------------------------
+# Cache
+# ------------------------
 
-        if diff < best_diff:
-            best = r
-            best_diff = diff
+def load_cache():
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE) as f:
+            return json.load(f)
+    return {}
 
-    return best
 
+def save_cache(cache):
+    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+    with open(CACHE_FILE, "w") as f:
+        json.dump(cache, f, indent=2)
+
+
+# ------------------------
+# Search
+# ------------------------
 
 def search_youtube(query):
     cmd = [
         "yt-dlp",
-        f"ytsearch5:{query}",
+        f"ytsearch7:{query}",
         "--dump-json",
         "--no-download",
     ]
@@ -69,6 +87,49 @@ def search_youtube(query):
     return videos
 
 
+# ------------------------
+# Scoring
+# ------------------------
+
+def score_video(video, artist, title, target_duration):
+    vtitle = video.get("title", "")
+    duration = video.get("duration") or 0
+    channel = video.get("channel", "")
+
+    if is_bad_title(vtitle):
+        return -1
+
+    # similarity
+    sim = similarity(f"{artist} {title}", vtitle)
+
+    # duration penalty
+    diff = abs(duration - target_duration)
+    duration_score = max(0, 1 - (diff / 10))  # 10s tolerance
+
+    # channel bonus
+    channel_score = 0.2 if is_good_channel(channel) else 0
+
+    return sim + duration_score + channel_score
+
+
+def pick_best(video_list, artist, title, duration):
+    best = None
+    best_score = -1
+
+    for v in video_list:
+        s = score_video(v, artist, title, duration)
+
+        if s > best_score:
+            best = v
+            best_score = s
+
+    return best
+
+
+# ------------------------
+# Download
+# ------------------------
+
 def download(track, base_dir):
     artist = track["artist"]
     album = track["album"]
@@ -82,26 +143,35 @@ def download(track, base_dir):
         print(f"Already exists: {output_path}")
         return
 
-    query = f"{artist} - {title} audio"
+    cache = load_cache()
+    cache_key = f"{artist}::{title}"
 
-    print(f"\n=== Searching ===")
-    print(f"Query: {query}")
+    if cache_key in cache:
+        url = cache[cache_key]
+        print(f"⚡ Using cached match: {url}")
+    else:
+        query = f"{artist} - {title} audio"
 
-    results = search_youtube(query)
+        print(f"\n=== Searching ===")
+        print(f"Query: {query}")
 
-    if not results:
-        print("❌ No results")
-        return
+        results = search_youtube(query)
 
-    best = pick_best_video(results, duration)
+        if not results:
+            print("❌ No results")
+            return
 
-    if not best:
-        print("❌ No suitable match")
-        return
+        best = pick_best(results, artist, title, duration)
 
-    url = best["webpage_url"]
+        if not best:
+            print("❌ No suitable match")
+            return
 
-    print(f"✅ Selected: {best['title']} ({best.get('duration')}s)")
+        url = best["webpage_url"]
+        print(f"✅ Selected: {best['title']} ({best.get('duration')}s)")
+
+        cache[cache_key] = url
+        save_cache(cache)
 
     temp_output = output_path.replace(".mp3", ".%(ext)s")
 
@@ -117,9 +187,13 @@ def download(track, base_dir):
         "--embed-thumbnail",
     ]
 
-    subprocess.run(cmd)
+    result = subprocess.run(cmd)
+
+    if result.returncode != 0:
+        print("❌ Download failed")
+        return
 
     if os.path.exists(output_path):
         print(f"✅ Saved: {output_path}")
     else:
-        print(f"⚠️ Failed: {output_path}")
+        print(f"⚠️ Missing file: {output_path}")
