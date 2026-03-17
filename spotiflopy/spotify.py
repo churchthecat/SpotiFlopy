@@ -6,7 +6,6 @@ from .config import load_config
 def get_client():
     cfg = load_config()
 
-    # ✅ Support BOTH formats
     if "spotify" in cfg:
         spcfg = cfg["spotify"]
     else:
@@ -31,7 +30,6 @@ def get_client():
 
 def get_liked_tracks():
     sp = get_client()
-
     results = sp.current_user_saved_tracks(limit=50)
 
     tracks = []
@@ -44,6 +42,7 @@ def get_liked_tracks():
             "title": t["name"],
             "album": t["album"]["name"],
             "track_number": t["track_number"],
+            "duration": int(t["duration_ms"] / 1000),  # 🔥 NEW
         })
 
     return tracks
