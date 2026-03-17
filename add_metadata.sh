@@ -1,15 +1,62 @@
+#!/usr/bin/env bash
+set -e
+
+pip install mutagen
+
+# ---------------- TAGGER ----------------
+cat <<'PY' > spotiflopy/tagger.py
+from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3, APIC
+import requests
+import os
+
+
+def tag_file(path, track):
+    try:
+        audio = EasyID3(path)
+    except:
+        audio = EasyID3()
+        audio.save(path)
+        audio = EasyID3(path)
+
+    audio["title"] = track["title"]
+    audio["artist"] = track["artist"]
+
+    if track.get("album"):
+        audio["album"] = track["album"]
+
+    if track.get("track_number"):
+        audio["tracknumber"] = str(track["track_number"])
+
+    audio.save()
+
+
+def embed_cover(path, url):
+    try:
+        data = requests.get(url, timeout=10).content
+
+        audio = ID3(path)
+        audio["APIC"] = APIC(
+            encoding=3,
+            mime="image/jpeg",
+            type=3,
+            desc="Cover",
+            data=data
+        )
+        audio.save()
+
+    except Exception:
+        pass
+PY
+
+# ---------------- DOWNLOADER UPDATE ----------------
+cat <<'PY' > spotiflopy/downloader.py
 import os
 import subprocess
 from .tagger import tag_file, embed_cover
-from .musicbrainz import enrich_metadata
 
 
 def download(track, base_dir):
-    # --- enrich metadata ---
-    enriched = enrich_metadata(track["artist"], track["title"])
-    if enriched:
-        track.update({k: v for k, v in enriched.items() if v})
-
     artist = track["artist"]
     album = track.get("album") or "Unknown Album"
     title = track["title"]
@@ -49,9 +96,15 @@ def download(track, base_dir):
         print(f"⚠️ Download failed: {query}")
         return None
 
+    # --- enforce clean tags ---
     tag_file(path, track)
 
     if track.get("cover_url"):
         embed_cover(path, track["cover_url"])
 
     return path
+PY
+
+pip install -e .
+
+echo "Metadata system installed."

@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+set -e
+
+cat <<'PY' > spotiflopy/spotify.py
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from .config import load_config
@@ -96,3 +100,8 @@ def get_playlist_tracks(playlist_id, since=None):
         offset += 100
 
     return results
+PY
+
+pip install -e .
+
+echo "Spotify auth fixed."

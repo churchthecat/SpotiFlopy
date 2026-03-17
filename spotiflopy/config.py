@@ -1,28 +1,39 @@
 import os
 import json
 
-CONFIG_PATH = os.path.expanduser("~/.config/spotiflopy/config.json")
+CONFIG_PATH = os.path.expanduser("~/.spotiflopy.json")
+
+
+DEFAULT_CONFIG = {
+    "client_id": "",
+    "client_secret": "",
+    "redirect_uri": "http://127.0.0.1:8888/callback",
+    "music_dir": "~/Music",
+    "backend": "yt-dlp",
+    "cookies_from_browser": "chromium",
+    "cookies_file": "",
+    "proxy": "",
+    "acoustid_key": ""
+}
 
 
 def load_config():
     if not os.path.exists(CONFIG_PATH):
-        raise FileNotFoundError(f"Config not found: {CONFIG_PATH}")
+        return DEFAULT_CONFIG.copy()
 
     with open(CONFIG_PATH) as f:
         cfg = json.load(f)
 
-    # expand paths
-    if "music_dir" in cfg:
-        cfg["music_dir"] = os.path.expanduser(cfg["music_dir"])
+    # merge defaults (important for upgrades)
+    merged = DEFAULT_CONFIG.copy()
+    merged.update(cfg)
+    return merged
 
-    return cfg
+
+def save_config(cfg):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
 
 
 def get_music_dir():
-    cfg = load_config()
-
-    music_dir = cfg.get("music_dir")
-    if not music_dir:
-        raise ValueError("music_dir not set in config")
-
-    return music_dir
+    return os.path.expanduser(load_config()["music_dir"])
