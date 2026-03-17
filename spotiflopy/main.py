@@ -1,49 +1,37 @@
-import sys
+import argparse
 from .spotify import get_liked_tracks
 from .downloader import download
-from .library import load_index, save_index, exists, add
 
 
 def sync():
-
-    print("\nFetching Spotify liked songs...\n")
-
     tracks = get_liked_tracks()
-
-    index = load_index()
-
     for track in tracks:
-
-        key = f"{track['artist']} - {track['track']}"
-
-        if exists(index, key):
-            print(f"Skipping (library): {key}")
-            continue
-
-        print(f"Downloading: {key}")
-
-        try:
-            download(track)
-            add(index, key)
-
-        except Exception as e:
-            print(f"Failed: {e}")
-
-    save_index(index)
-
-    print("\nAll downloads finished.\n")
+        download(track)
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        prog="spotiflopy",
+        description="Mirror your Spotify liked songs locally"
+    )
 
-    if len(sys.argv) < 2:
-        print("Usage: spotiflopy sync")
-        return
+    subparsers = parser.add_subparsers(dest="command")
 
-    cmd = sys.argv[1]
+    # sync command
+    subparsers.add_parser("sync", help="Download liked songs")
 
-    if cmd == "sync":
+    # playlist command (placeholder)
+    subparsers.add_parser("playlist", help="Download a playlist")
+
+    args = parser.parse_args()
+
+    if args.command == "sync":
         sync()
-
+    elif args.command == "playlist":
+        print("Playlist support coming soon")
     else:
-        print("Unknown command")
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
