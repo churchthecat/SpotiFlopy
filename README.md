@@ -1,382 +1,184 @@
-# SpotiFlopy
+# 🎧 SpotiFlopy
 
-![Python](https://img.shields.io/badge/python-3.9+-blue.svg)
-![License](https://img.shields.io/github/license/churchthecat/SpotiFlopy)
-![Repo Size](https://img.shields.io/github/repo-size/churchthecat/SpotiFlopy)
-![Last Commit](https://img.shields.io/github/last-commit/churchthecat/SpotiFlopy)
+Production-grade Spotify → local music sync tool.
 
-Automatically mirror your **Spotify liked songs locally**.
-
-SpotiFlopy syncs your Spotify library and downloads audio from YouTube using **Spotipy** and **yt-dlp**.
+Sync your Spotify liked songs and playlists into a clean, tagged, deduplicated local music library with smart matching, incremental sync, and upgrade support.
 
 ---
 
-⭐ If you find this project useful, consider **starring the repository**.
+## ✨ Features
+
+- Sync liked songs and playlists
+- Parallel downloads + retry queue
+- Incremental sync (no re-downloads)
+- Smart matching (filename + audio fingerprint)
+- Optional AcoustID matching
+- MusicBrainz metadata + album art
+- Playlist sync using symlinks (no duplicates)
+- MP3 + FLAC support
+- Smart upgrade system (MP3 → FLAC auto replace)
+- Clean folder structure
 
 ---
 
-# Features
+## 🚀 Install
 
-* Sync Spotify liked songs
-* Download Spotify playlists
-* Automatic YouTube downloads
-* Artist folder organization
-* Embedded album artwork
-* Proper ID3 tags
-* Duplicate detection
-* CLI tool (`spotiflopy`)
-* Optional daemon auto-sync
-* Cron automation
-* Linux server support
-* Headless authentication support
-* Automatic browser cookie detection
-
----
-
-# Demo
-
-Example run:
-
-```
-$ spotiflopy sync
-
-Syncing Spotify liked songs...
-
-✔ Electro Spectre - The Bell
-✔ VNV Nation - Nova
-✔ Flogging Molly - What's Left of the Flag
-
-Download complete.
-```
-
-Example folder structure:
-
-```
-Music/
- ├── VNV Nation/
- │   ├── Beloved.mp3
- │   └── Nova (Shine a Light on Me).mp3
- │
- ├── Electro Spectre/
- │   └── The Bell.mp3
-```
-
----
-
-# Quick Start
-
-Install and run in under a minute.
-
-```
-git clone https://github.com/churchthecat/SpotiFlopy.git
-cd SpotiFlopy
-
-python3 -m venv myenv
-source myenv/bin/activate
-
-pip install -r requirements.txt
+git clone https://github.com/churchthecat/SpotiFlopy.git  
+cd SpotiFlopy  
+python3 -m venv myenv  
+source myenv/bin/activate  
 pip install -e .
 
-spotiflopy
-```
-
-First run will ask for your **music download folder**.
-
 ---
 
-# Installation
-
-Clone the repository:
-
-```
-git clone https://github.com/churchthecat/SpotiFlopy.git
-cd SpotiFlopy
-```
-
-Create virtual environment:
-
-```
-python3 -m venv myenv
-source myenv/bin/activate
-```
-
-Install dependencies:
-
-```
-pip install -r requirements.txt
-```
-
-Install CLI command:
-
-```
-pip install -e .
-```
+## ⚙️ Setup
 
 Run:
 
-```
-spotiflopy
-```
+spotiflopy init
+
+You will be prompted for:
+
+- Spotify Client ID
+- Spotify Client Secret
+- Redirect URI
+- Music folder
+- Audio format (mp3 / flac / best)
+- Optional AcoustID API key
 
 ---
 
-# CLI Usage
+## 🔑 Spotify App Setup (Local)
 
-Basic usage:
-
-```
-spotiflopy
-```
-
-Commands:
-
-```
-spotiflopy sync
-spotiflopy playlist PLAYLIST_URL
-spotiflopy daemon
-spotiflopy daemon 6
-spotiflopy setdir
-```
-
-| Command                   | Description               |
-| ------------------------- | ------------------------- |
-| `spotiflopy`              | Sync liked songs          |
-| `spotiflopy sync`         | Manual sync               |
-| `spotiflopy playlist URL` | Download a playlist       |
-| `spotiflopy daemon`       | Auto-sync every 12 hours  |
-| `spotiflopy daemon 6`     | Auto-sync every 6 hours   |
-| `spotiflopy setdir`       | Change download directory |
-
----
-
-# Spotify Authentication
-
-Create a Spotify application:
+Create an app:
 
 https://developer.spotify.com/dashboard
 
-Add redirect URI:
+Set redirect URI EXACTLY:
 
-```
-http://localhost:8888/callback
-```
+http://127.0.0.1:8888/callback
 
-Create `.env` file:
+Then run:
 
-```
-SPOTIPY_CLIENT_ID=your_client_id
-SPOTIPY_CLIENT_SECRET=your_client_secret
-SPOTIPY_REDIRECT_URI=http://localhost:8888/callback
-```
+spotiflopy sync
 
-Run:
-
-```
-spotiflopy
-```
-
-A browser window will open for authentication.
-
-Token is stored locally:
-
-```
-.spotiflofy_token_cache
-```
+A browser will open for authentication.
 
 ---
 
-# Headless / Server Authentication
+## ☁️ Headless / Server Setup (Cloudflare Proxy)
 
-For headless systems (servers, VPS, containers), you can use an OAuth proxy.
+For servers, VPS, or headless setups, you can use a public HTTPS callback via Cloudflare.
+
+### 1. Create a public endpoint
+
+Use Cloudflare Tunnel (or any reverse proxy) to expose your local callback:
+
+Example:
+
+https://your-domain.com/callback
+
+### 2. Add it to Spotify
+
+In your Spotify app dashboard, add:
+
+https://your-domain.com/callback
+
+### 3. Configure SpotiFlopy
+
+During `spotiflopy init`, use:
+
+Redirect URI:
+
+https://your-domain.com/callback
 
 Example project:
 
 https://github.com/1111ij1/spotify-proxy
 
-Example `.env`:
+### 4. Run sync
 
-```
-SPOTIPY_CLIENT_ID=
-SPOTIPY_CLIENT_SECRET=
-SPOTIPY_REDIRECT_URI=https://your-domain.com/callback
-```
+spotiflopy sync
 
-The proxy handles the Spotify login flow.
+👉 Spotify will redirect to your public URL  
+👉 Your proxy forwards it to your local app  
 
 ---
 
-# Automation (Cron)
+## ▶️ Usage
 
-Automatically sync your Spotify library.
+Sync liked songs:
 
-Edit crontab:
+spotiflopy sync
 
-```
-crontab -e
-```
+Sync playlists:
 
-Example:
+spotiflopy sync --playlists
 
-```
-0 2,14 * * * /home/user/SpotiFlopy/myenv/bin/spotiflopy >> /home/user/spotiflopy.log 2>&1
-```
+Limit + workers:
 
-Runs twice daily.
+spotiflopy sync --limit 10 --workers 4
 
----
+Repair library:
 
-# YouTube Cookies
-
-YouTube may occasionally block downloads.
-
-SpotiFlopy automatically attempts to extract cookies from installed browsers:
-
-* Chrome
-* Chromium
-* Brave
-* Firefox
-
-If a browser is installed and logged into YouTube, downloads usually work automatically.
-
-Example install for servers that works best with yt-dl:
-
-```
-sudo apt install chromium-browser
-```
+spotiflopy repair
 
 ---
 
-# Optional: Manual Cookies
+## 🧠 Matching System
 
-If YouTube still blocks downloads, export cookies manually.
-
-Install the browser extension:
-
-```
-Get cookies.txt
-```
-
-Export cookies from YouTube and place the file in the project folder:
-
-```
-cookies.txt
-```
-
-SpotiFlopy will automatically use it.
+1. Filename match (fast)
+2. Audio fingerprint (Chromaprint / fpcalc)
+3. AcoustID lookup (optional)
 
 ---
 
-# Updating
+## 🔼 Smart Upgrade
 
-Pull latest updates:
+If switching to FLAC:
 
-```
-git pull
-```
-
-Update dependencies:
-
-```
-pip install -r requirements.txt
-```
-
-Update yt-dlp:
-
-```
-pip install -U yt-dlp
-```
+- Existing MP3 detected
+- FLAC downloaded
+- MP3 replaced automatically
+- No duplicates kept
 
 ---
 
-# Security Notes
+## 📁 Structure
 
-Never commit these files:
+Music/
+  Artist/
+    Album/
+      01 - Track.mp3
 
-```
-.env
-.spotiflofy_token_cache
-.spotiflofy_config.json
-cookies.txt
-songs.csv
-```
-
-These are excluded in `.gitignore`.
+  Playlists/
+    Playlist Name/
+      Track -> symlink
 
 ---
 
-# Troubleshooting
+## 🛠 Requirements
 
-### YouTube: "Sign in to confirm you're not a bot"
+Python 3.10+  
+ffmpeg  
+yt-dlp  
+fpcalc (Chromaprint)
 
-Install Chromium:
+Install (Debian/Ubuntu):
 
-```
-sudo apt install chromium-browser
-```
-
----
-
-### Spotify login loop
-
-Delete token cache:
-
-```
-rm .spotiflofy_token_cache
-```
-
-Run again.
+sudo apt install ffmpeg chromium-browser
 
 ---
 
-# Project Structure
+## ⚠️ Notes
 
-```
-SpotiFlopy/
- ├── spotiflopy/
- │   ├── __init__.py
- │   └── main.py
- │
- ├── requirements.txt
- ├── pyproject.toml
- ├── setup.py
- ├── install.sh
- ├── README.md
- └── .env
-```
+- Spotify does NOT provide audio files
+- Audio is sourced via yt-dlp
+- FLAC may be re-encoded depending on source
+- AcoustID improves matching accuracy but is optional
 
 ---
 
-# Credits
+## 📜 License
 
-This project is based on the original **SpotiFlopy** by:
-
-https://github.com/aneeb02/SpotiFlopy
-
-
-Huge thanks to the original author.
-
----
-
-# Roadmap
-
-Possible future improvements:
-
-* FLAC downloads
-* MusicBrainz metadata matching
-* Download progress bars
-* Playlist auto-sync
-* Web interface
-
----
-
-# Contributing
-
-Pull requests are welcome.
-
-If you find bugs or improvements, open an issue or submit a PR.
-
----
-
-# License
-
-MIT License
+MIT

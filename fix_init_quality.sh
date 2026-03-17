@@ -1,3 +1,7 @@
+#!/usr/bin/env bash
+set -e
+
+cat <<'PY' > spotiflopy/init.py
 from .config import load_config, save_config
 
 
@@ -66,3 +70,8 @@ def run_init():
     save_config(cfg)
 
     print("\n✅ Configuration saved to ~/.spotiflopy.json")
+PY
+
+pip install -e .
+
+echo "Init quality selector fixed."
