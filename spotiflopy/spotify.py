@@ -1,9 +1,41 @@
+import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 
-sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-    scope="user-library-read playlist-read-private"
-))
+_sp = None
+
+
+def get_spotify():
+    global _sp
+
+    if _sp:
+        return _sp
+
+    client_id = os.getenv("SPOTIPY_CLIENT_ID")
+    client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
+    redirect_uri = os.getenv("SPOTIPY_REDIRECT_URI")
+
+    if not client_id or not client_secret or not redirect_uri:
+        raise RuntimeError(
+            "\n❌ Spotify not configured.\n\n"
+            "Run:\n"
+            "  spotiflopy init\n\n"
+            "Or set env vars:\n"
+            "  SPOTIPY_CLIENT_ID\n"
+            "  SPOTIPY_CLIENT_SECRET\n"
+            "  SPOTIPY_REDIRECT_URI\n"
+        )
+
+    _sp = spotipy.Spotify(
+        auth_manager=SpotifyOAuth(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            scope="user-library-read playlist-read-private",
+        )
+    )
+
+    return _sp
 
 
 def parse_track(item):
@@ -18,11 +50,14 @@ def parse_track(item):
         "artist": t["artists"][0]["name"],
         "album": t["album"]["name"],
         "track_number": t["track_number"],
+        "duration": int(t["duration_ms"] / 1000),
         "art": t["album"]["images"][0]["url"] if t["album"]["images"] else None,
     }
 
 
 def get_liked_tracks():
+    sp = get_spotify()
+
     results = []
     offset = 0
 
@@ -44,16 +79,23 @@ def get_liked_tracks():
 
 
 def get_playlists():
+    sp = get_spotify()
+
     results = []
     res = sp.current_user_playlists()
 
     for p in res["items"]:
-        results.append({"id": p["id"], "name": p["name"]})
+        results.append({
+            "id": p["id"],
+            "name": p["name"]
+        })
 
     return results
 
 
 def get_playlist_tracks(pid):
+    sp = get_spotify()
+
     results = []
     offset = 0
 
