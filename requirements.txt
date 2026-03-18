@@ -1,0 +1,8 @@
+yt-dlp
+spotipy
+python-dotenv
+browser-cookie3
+requests
+mutagen
+secretstorage
+pyacoustid

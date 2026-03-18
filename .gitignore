@@ -1,0 +1,37 @@
+# secrets
+.env
+*.env
+
+# token caches
+.cache
+.spotiflopy_cache*
+.spotiflopy_token_cache*
+*.cache.json
+
+# local config
+config.json
+
+# databases
+*.db
+*.db-shm
+*.db-wal
+
+# python
+__pycache__/
+*.pyc
+
+# virtualenv
+myenv/
+venv/
+
+# build artifacts
+build/
+dist/
+*.egg-info/
+
+# downloads / media
+downloads/
+*.mp3
+
+config.json
+cache/

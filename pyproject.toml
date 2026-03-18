@@ -1,0 +1,17 @@
+[project]
+name = "spotiflopy"
+version = "2.4"
+description = "Production-grade Spotify → local music sync tool"
+readme = "README.md"
+requires-python = ">=3.10"
+
+dependencies = [
+    "spotipy",
+    "yt-dlp",
+    "mutagen",
+    "requests",
+    "musicbrainzngs"
+]
+
+[project.scripts]
+spotiflopy = "spotiflopy.main:main"
