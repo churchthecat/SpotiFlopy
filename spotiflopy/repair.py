@@ -1,94 +1,128 @@
+import os
 import re
-import shutil
-from pathlib import Path
-from collections import defaultdict
+import yt_dlp
 
-from .config import get_music_dir
-
-
-BAD_WORDS = [
-    "official video",
-    "official hd video",
-    "lyrics",
-    "audio",
-    "topic",
-    "live"
-]
+from spotiflopy.spotify import get_tracks
+from spotiflopy.youtube import search_youtube
+from spotiflopy.state import get_track, upsert_track, cleanup_missing_files
+from spotiflopy.verification import verify as acoustid_verify
+from spotiflopy.tagger import tag_file
+from spotiflopy.config import load_config
 
 
-def clean_title(title):
-
-    t = title.lower()
-
-    for word in BAD_WORDS:
-        t = t.replace(word, "")
-
-    t = re.sub(r"\(.*?\)", "", t)
-    t = re.sub(r"\[.*?\]", "", t)
-
-    t = t.replace("_", " ")
-    t = re.sub(r"\s+", " ", t)
-
-    return t.strip()
+def safe(s):
+    return re.sub(r'[\\/:"*?<>|]+', '', (s or "")).strip()
 
 
-def repair_library():
+def build_path(track, music_dir):
+    artist = safe(track.get("artist"))
+    album = safe(track.get("album"))
+    title = safe(track.get("title"))
+    num = str(track.get("track_number", 0)).zfill(2)
 
-    music_dir = get_music_dir()
-
-    print("\nScanning library...\n")
-
-    songs = defaultdict(list)
-
-    for file in music_dir.rglob("*.mp3"):
-
-        name = file.stem
-        cleaned = clean_title(name)
-
-        songs[cleaned].append(file)
-
-    duplicates = 0
-
-    for title, files in songs.items():
-
-        if len(files) <= 1:
-            continue
-
-        files.sort(key=lambda f: len(f.name))
-
-        keep = files[0]
-
-        for f in files[1:]:
-
-            print("Removing duplicate:", f)
-            f.unlink()
-            duplicates += 1
-
-    print(f"\nRemoved {duplicates} duplicates")
-
-    fix_filenames(music_dir)
+    return os.path.join(
+        music_dir,
+        artist,
+        album,
+        f"{num} - {title}.mp3"
+    )
 
 
-def fix_filenames(music_dir):
+def download_audio(url, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    print("\nCleaning filenames...\n")
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "outtmpl": path.replace(".mp3", ".%(ext)s"),
+        "postprocessors": [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }],
+        "quiet": False
+    }
 
-    for file in music_dir.rglob("*.mp3"):
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
-        name = file.stem
+    return path
 
-        cleaned = clean_title(name)
 
-        new_name = cleaned.title() + ".mp3"
+def download_track(track):
+    config = load_config()
+    music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
 
-        new_path = file.with_name(new_name)
+    track_id = track.get("spotify_id")
+    db_entry = get_track(track_id)
 
-        if new_path != file:
+    if db_entry and db_entry.get("status") == "ok":
+        if db_entry.get("file") and os.path.exists(db_entry.get("file")):
+            print(f"[SKIP] {track['title']}")
+            return
 
-            try:
-                file.rename(new_path)
-                print("Renamed:", new_path.name)
-            except:
-                pass
+    query = f"{track['artist']} - {track['title']}"
+    print(f"[SEARCH] {query}")
 
-    print("\nFilename cleanup complete.\n")
+    results = search_youtube(query)
+
+    for i, r in enumerate(results[:3], 1):
+        url = r.get("url")
+        title = r.get("title")
+
+        print(f"[TRY {i}/3] {title}")
+
+        path = build_path(track, music_dir)
+
+        try:
+            saved = download_audio(url, path)
+
+            print("[VERIFY]")
+            ok, fingerprint = acoustid_verify(track, saved)
+
+            if ok is False:
+                print("[REJECT]")
+                os.remove(saved)
+                continue
+
+            tag_file(saved, track)
+
+            upsert_track(
+                track_id,
+                file=saved,
+                url=url,
+                fingerprint=fingerprint,
+                status="ok"
+            )
+
+            print("[SUCCESS]")
+            return
+
+        except Exception as e:
+            print("[ERROR]", e)
+
+    print("[FAIL]")
+    upsert_track(track_id, status="failed")
+
+
+def repair_library(full=False):
+    cleanup_missing_files()
+
+    tracks = get_tracks(all_tracks=full)
+
+    print(f"🔧 Repairing {len(tracks)} tracks...")
+
+    config = load_config()
+    music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
+
+    for track in tracks:
+        expected = build_path(track, music_dir)
+
+        if os.path.exists(expected):
+            print(f"[TAG FIX] {track['title']}")
+            tag_file(expected, track)
+            upsert_track(track["spotify_id"], file=expected, status="ok")
+        else:
+            print(f"[REPAIR] {track['artist']} - {track['title']}")
+            download_track(track)
+
+    print("✅ Repair complete")

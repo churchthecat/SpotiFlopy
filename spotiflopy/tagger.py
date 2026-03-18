@@ -1,62 +1,70 @@
-from mutagen.easyid3 import EasyID3
-from mutagen.id3 import ID3, APIC
 import requests
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TRCK, TDRC, TCON, APIC, TPE2, COMM
+from mutagen.mp3 import MP3
+
+
+def fetch_cover(url):
+    if not url:
+        return None
+    try:
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            return r.content
+    except Exception:
+        pass
+    return None
 
 
 def tag_file(path, track):
-    """
-    Authoritative metadata writer.
-    Safe to call multiple times.
-    """
+    audio = MP3(path, ID3=ID3)
 
     try:
-        audio = EasyID3(path)
-    except:
-        audio = EasyID3()
-        audio.save(path)
-        audio = EasyID3(path)
+        audio.add_tags()
+    except Exception:
+        pass
 
-    if track.get("title"):
-        audio["title"] = track["title"]
+    tags = audio.tags
 
-    if track.get("artist"):
-        audio["artist"] = track["artist"]
+    title = track.get("title", "")
+    artist = track.get("artist", "")
+    album = track.get("album", "")
+    album_artist = track.get("album_artist", artist)
+    track_number = track.get("track_number", 0)
+    year = track.get("year", "")
+    genre = track.get("genre", "")
+    spotify_id = track.get("spotify_id")
+    cover_url = track.get("cover_url")
 
-    if track.get("album"):
-        audio["album"] = track["album"]
+    tags["TIT2"] = TIT2(encoding=3, text=title)
+    tags["TPE1"] = TPE1(encoding=3, text=artist)
+    tags["TALB"] = TALB(encoding=3, text=album)
+    tags["TPE2"] = TPE2(encoding=3, text=album_artist)
+    tags["TRCK"] = TRCK(encoding=3, text=str(track_number))
 
-    if track.get("track_number"):
-        audio["tracknumber"] = str(track["track_number"])
+    if year:
+        tags["TDRC"] = TDRC(encoding=3, text=str(year))
 
-    if track.get("year"):
-        audio["date"] = str(track["year"])
+    if genre:
+        tags["TCON"] = TCON(encoding=3, text=genre)
 
-    audio.save()
+    if spotify_id:
+        tags["COMM"] = COMM(
+            encoding=3,
+            lang="eng",
+            desc="Spotify",
+            text=f"https://open.spotify.com/track/{spotify_id}"
+        )
 
-    # embed cover AFTER saving tags
-    if track.get("cover_url"):
-        embed_cover(path, track["cover_url"])
-
-
-def embed_cover(path, url):
-    try:
-        data = requests.get(url, timeout=10).content
-
-        audio = ID3(path)
-
-        audio.delall("APIC")  # prevent duplicates
-
-        audio.add(APIC(
+    cover_data = fetch_cover(cover_url)
+    if cover_data:
+        tags["APIC"] = APIC(
             encoding=3,
             mime="image/jpeg",
             type=3,
             desc="Cover",
-            data=data
-        ))
+            data=cover_data
+        )
+        print("[COVER] Embedded")
 
-        audio.save()
-
-        print(f"[COVER] Embedded")
-
-    except Exception as e:
-        print(f"[COVER FAIL] {e}")
+    audio.save()
+    print(f"[TAGGED] {path}")

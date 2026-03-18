@@ -54,19 +54,40 @@ def get_tracks(limit=50, all_tracks=True):
             break
 
         for item in items:
-            t = item.get("track", {})
+            t = item.get("track")
+
+            # Skip invalid entries
+            if not t:
+                continue
+
+            album = t.get("album", {})
+            artists = t.get("artists", [])
+
+            # --- Extract clean fields ---
+            title = t.get("name")
+            artist = ", ".join(a.get("name") for a in artists if a.get("name"))
+            album_name = album.get("name")
+            album_artist = ", ".join(
+                a.get("name") for a in album.get("artists", []) if a.get("name")
+            ) or artist
+
+            release_date = album.get("release_date", "")
+            year = release_date[:4] if release_date else ""
+
+            images = album.get("images", [])
+            cover_url = images[0].get("url") if images else None
 
             results.append({
-                "title": t.get("name"),
-                "artist": ", ".join(a["name"] for a in t.get("artists", [])),
-                "album": t.get("album", {}).get("name"),
+                "title": title,
+                "artist": artist,
+                "album": album_name,
+                "album_artist": album_artist,
                 "spotify_id": t.get("id"),
                 "track_number": t.get("track_number"),
-                "cover_url": (
-                    t.get("album", {})
-                     .get("images", [{}])[0]
-                     .get("url")
-                ),
+                "disc_number": t.get("disc_number"),
+                "duration_ms": t.get("duration_ms"),
+                "year": year,
+                "cover_url": cover_url,
             })
 
         if not all_tracks:

@@ -1,67 +1,75 @@
 import requests
-from mutagen.easyid3 import EasyID3
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TRCK, TDRC, TCON, APIC, TPE2, COMM
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, APIC, error
 
 
-def tag_file(filepath, track):
+def fetch_cover(url):
+    if not url:
+        return None
     try:
-        # ✅ Ensure ID3 exists
-        try:
-            audio = MP3(filepath, ID3=EasyID3)
-        except error:
-            audio = MP3(filepath)
-            audio.add_tags()
-
-        audio["title"] = track.get("title", "")
-        audio["artist"] = track.get("artist", "")
-        audio["album"] = track.get("album", "")
-
-        if track.get("track_number"):
-            audio["tracknumber"] = str(track["track_number"])
-
-        audio.save()
-
-        # 🔥 Add album art
-        image_url = track.get("cover_url")
-
-        if image_url:
-            add_cover_art(filepath, image_url)
-        else:
-            print("[COVER] No cover URL")
-
-        print(f"[TAGGED] {filepath}")
-
-    except Exception as e:
-        print(f"[TAG ERROR] {e}")
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            return r.content
+    except Exception:
+        pass
+    return None
 
 
-def add_cover_art(filepath, image_url):
+def tag_file(path, track):
+    audio = MP3(path, ID3=ID3)
+
     try:
-        img_data = requests.get(image_url, timeout=10).content
+        audio.add_tags()
+    except Exception:
+        pass
 
-        audio = MP3(filepath, ID3=ID3)
+    tags = audio.tags
 
-        # ✅ FORCE tag creation if missing
-        if audio.tags is None:
-            audio.add_tags()
+    title = track.get("title", "")
+    artist = track.get("artist", "")
+    album = track.get("album", "")
+    track_number = track.get("track_number", 0)
+    cover_url = track.get("cover_url")
+    spotify_id = track.get("spotify_id")
 
-        # ✅ Remove old cover (avoid duplicates)
-        audio.tags.delall("APIC")
+    # Optional fields (safe defaults)
+    year = track.get("year", "")
+    genre = track.get("genre", "")
+    album_artist = track.get("album_artist", artist)
 
-        audio.tags.add(
-            APIC(
-                encoding=3,
-                mime="image/jpeg",
-                type=3,
-                desc="Cover",
-                data=img_data
-            )
+    # --- Core tags ---
+    tags["TIT2"] = TIT2(encoding=3, text=title)
+    tags["TPE1"] = TPE1(encoding=3, text=artist)
+    tags["TALB"] = TALB(encoding=3, text=album)
+    tags["TPE2"] = TPE2(encoding=3, text=album_artist)
+    tags["TRCK"] = TRCK(encoding=3, text=str(track_number))
+
+    # --- Optional tags ---
+    if year:
+        tags["TDRC"] = TDRC(encoding=3, text=str(year))
+
+    if genre:
+        tags["TCON"] = TCON(encoding=3, text=genre)
+
+    if spotify_id:
+        tags["COMM"] = COMM(
+            encoding=3,
+            lang="eng",
+            desc="Spotify",
+            text=f"https://open.spotify.com/track/{spotify_id}"
         )
 
-        audio.save()
-
+    # --- Cover art ---
+    cover_data = fetch_cover(cover_url)
+    if cover_data:
+        tags["APIC"] = APIC(
+            encoding=3,
+            mime="image/jpeg",
+            type=3,
+            desc="Cover",
+            data=cover_data
+        )
         print("[COVER] Embedded")
 
-    except Exception as e:
-        print(f"[COVER ERROR] {e}")
+    audio.save()
+    print(f"[TAGGED] {path}")
