@@ -1,4 +1,4 @@
 [spotify]
-client_id=kldjfldkjf
-client_secret=kljfdkjf
+client_id=YOUR_CLIENT_ID  # pragma: allowlist secret
+client_secret=YOUR_SPOTIFY_CLIENT_SECRET  # pragma: allowlist secret
 redirect_uri=https.....allback
