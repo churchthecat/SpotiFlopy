@@ -1,67 +1,89 @@
+import json
+import os
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
-from spotiflopy.config import load_config
+
+CONFIG_PATH = os.path.expanduser("~/.spotiflopy_config.json")
+
+
+def load_config():
+    if not os.path.exists(CONFIG_PATH):
+        raise RuntimeError("Missing config. Run 'spotiflopy init'")
+    with open(CONFIG_PATH) as f:
+        return json.load(f)
 
 
 def get_spotify():
-    from spotiflopy.config import load_config
-    import spotipy
-    from spotipy.oauth2 import SpotifyOAuth
-
     config = load_config()
 
-    redirect_uri = config.get(
-        "redirect_uri",
-        "http://localhost:8888/callback"
+    client_id = config.get("spotify_client_id")
+    client_secret = config.get("spotify_client_secret")
+    redirect_uri = config.get("spotify_redirect_uri")
+    proxy = config.get("proxy")
+
+    if not all([client_id, client_secret, redirect_uri]):
+        raise RuntimeError("Incomplete config. Run 'spotiflopy init'")
+
+    # Apply proxy if set
+    if proxy:
+        os.environ["HTTP_PROXY"] = proxy
+        os.environ["HTTPS_PROXY"] = proxy
+
+    return spotipy.Spotify(
+        auth_manager=SpotifyOAuth(
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            scope="user-library-read playlist-read-private",
+            cache_path=".spotiflopy_cache",
+        )
     )
 
-    return spotipy.Spotify(auth_manager=SpotifyOAuth(
-        client_id=config["spotify_client_id"],
-        client_secret=config["spotify_client_secret"],
-        redirect_uri=redirect_uri,
-        scope="user-library-read playlist-read-private",
-        cache_path=".spotiflopy_cache",
-        open_browser=True
-    ))
-
-
-def parse_track(item):
-    track = item.get("track") if "track" in item else item
-
-    return {
-        "artist": track["artists"][0]["name"],
-        "title": track["name"],
-        "album": track["album"]["name"],
-        "track_number": track["track_number"],
-        "duration_ms": track.get("duration_ms", 0),
-    }
-
-
-def get_tracks(all_tracks=False):
-    sp = get_spotify()
 
     results = []
-    limit = 50
     offset = 0
-
-    print("🎵 Fetching Spotify tracks...")
 
     while True:
         response = sp.current_user_saved_tracks(limit=limit, offset=offset)
-
         items = response.get("items", [])
+
+        if not items:
+            break
+
+        results.extend(items)
+
+        if not all_tracks:
+            break
+
+        offset += limit
+
+    return results
+def get_tracks(limit=50, all_tracks=True):
+    sp = get_spotify()
+
+    results = []
+    offset = 0
+
+    while True:
+        response = sp.current_user_saved_tracks(limit=limit, offset=offset)
+        items = response.get("items", [])
+
         if not items:
             break
 
         for item in items:
-            results.append(parse_track(item))
+            track = item.get("track", {})
 
-        print(f"[FETCHED] {len(results)} tracks")
+            results.append({
+                "title": track.get("name"),
+                "artist": ", ".join(a["name"] for a in track.get("artists", [])),
+                "album": track.get("album", {}).get("name"),
+                "spotify_id": track.get("id"),
+            })
 
         if not all_tracks:
-            break  # only first page unless --full
+            break
 
         offset += limit
 
-    print(f"✅ Total tracks: {len(results)}")
     return results

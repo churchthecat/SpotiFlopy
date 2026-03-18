@@ -35,3 +35,6 @@ downloads/
 
 config.json
 cache/
+
+# user config
+.spotiflopy_config.json
