@@ -1,44 +1,107 @@
-# secrets
+cat <<'EOF' > .gitignore
+# =========================
+# 🔐 SECRETS / ENV
+# =========================
 .env
 *.env
 
-# token caches
-.cache
-.spotiflopy_cache*
-.spotiflopy_token_cache*
-*.cache.json
-
-# local config
+# =========================
+# 🧠 LOCAL CONFIG
+# =========================
 config.json
+.spotiflopy_config.json
 
-# databases
+# =========================
+# 💾 DATABASES
+# =========================
 *.db
 *.db-shm
 *.db-wal
 
-# python
+# =========================
+# 🧠 CACHE / TOKENS
+# =========================
+.cache
+cache/
+*.cache.json
+.spotiflopy_cache*
+.spotiflopy_token_cache*
+
+# =========================
+# 🍪 COOKIES
+# =========================
+cookies.txt
+cookies.spotiflopy.db
+
+# =========================
+# 🐍 PYTHON
+# =========================
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# virtualenv
+# =========================
+# 🧪 VIRTUAL ENVS
+# =========================
 myenv/
 venv/
 
-# build artifacts
+# =========================
+# 📦 BUILD ARTIFACTS
+# =========================
 build/
 dist/
 *.egg-info/
 
-# downloads / media
+# =========================
+# 🎵 DOWNLOADS / MEDIA
+# =========================
 downloads/
+Music/
 *.mp3
+*.webm
+*.m4a
 
-config.json
-cache/
+# =========================
+# 🧾 LOGS
+# =========================
+*.log
 
-# user config
-.spotiflopy_config.json
+# =========================
+# 💻 IDE
+# =========================
+.vscode/
+.idea/
 
-cookies.txt
-cookies.spotiflopy.db
-*.db
+# =========================
+# 🖥️ OS JUNK
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# 📚 DOCS
+# =========================
+docs/
+docs/info.md
+
+# =========================
+# 🧯 BACKUPS / TEMP
+# =========================
+*.bak
+*.tmp
+*.swp
+
+# =========================
+# 📦 NODE (optional)
+# =========================
+node_modules/
+EOF
+# =========================
+# 🧾 JSON DATA DUMPS (ignore all except examples)
+# =========================
+*.json
+!config.example.json
+!.pre-commit-config.yaml
+!.secrets.baseline

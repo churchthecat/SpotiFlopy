@@ -24,11 +24,11 @@ Sync your Spotify liked songs and playlists into a clean, tagged, deduplicated l
 
 ## 🚀 Install
 
-git clone https://github.com/churchthecat/SpotiFlopy.git  
-cd SpotiFlopy  
+git clone https://github.com/churchthecat/SpotiFlopy.git
+cd SpotiFlopy
 
-python3 -m venv myenv  
-source myenv/bin/activate  
+python3 -m venv myenv
+source myenv/bin/activate
 
 pip install -e .
 
@@ -118,16 +118,16 @@ spotiflopy repair --full
 
 ## 🧠 Matching Pipeline
 
-1. YouTube search  
-2. Pre-score (title + artist + duration)  
-3. Download best candidates only  
+1. YouTube search
+2. Pre-score (title + artist + duration)
+3. Download best candidates only
 4. Verify audio:
-   - Duration match  
-   - Bitrate quality  
-   - File size sanity  
-5. Accept only high-score matches (≥ 0.8)  
-6. Cache YouTube URL  
-7. Apply metadata + cover  
+   - Duration match
+   - Bitrate quality
+   - File size sanity
+5. Accept only high-score matches (≥ 0.8)
+6. Cache YouTube URL
+7. Apply metadata + cover
 
 ---
 
