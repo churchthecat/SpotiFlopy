@@ -40,4 +40,5 @@ cache/
 .spotiflopy_config.json
 
 cookies.txt
-cookies
+cookies.spotiflopy.db
+*.db

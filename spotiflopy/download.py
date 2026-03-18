@@ -3,15 +3,13 @@ import re
 import yt_dlp
 
 from spotiflopy.youtube import search_youtube
-from spotiflopy.verification import verify_match
 from spotiflopy.spotify import get_tracks
 from spotiflopy.config import load_config
 from spotiflopy.db import get_track, upsert_track
+from spotiflopy.acoustid_verify import verify as acoustid_verify
+from spotiflopy.metadata import tag_file
 
 
-# ----------------------------
-# HELPERS
-# ----------------------------
 def safe(s):
     return re.sub(r'[\\/:"*?<>|]+', '', (s or "")).strip()
 
@@ -30,12 +28,35 @@ def build_output_template(track, music_dir):
     )
 
 
-# ----------------------------
-# DOWNLOAD AUDIO
-# ----------------------------
+def normalize(text):
+    text = text.lower()
+    text = re.sub(r"\(.*?\)", "", text)
+    text = re.sub(r"\[.*?\]", "", text)
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    return text.strip()
+
+
+def verify_match(track, result):
+    artist = normalize(track.get("artist", ""))
+    title = normalize(track.get("title", ""))
+    result_title = normalize(result)
+
+    score = 0
+
+    if artist and artist in result_title:
+        score += 0.5
+
+    if title and title in result_title:
+        score += 0.5
+
+    if result_title.startswith(f"{artist} {title}"):
+        score += 0.3
+
+    return min(score, 1.0)
+
+
 def download_audio(url, track, music_dir):
     outtmpl = build_output_template(track, music_dir)
-
     os.makedirs(os.path.dirname(outtmpl), exist_ok=True)
 
     ydl_opts = {
@@ -56,113 +77,97 @@ def download_audio(url, track, music_dir):
     return outtmpl.replace("%(ext)s", "mp3")
 
 
-# ----------------------------
-# NORMALIZE RESULT
-# ----------------------------
-def normalize_result(r):
-    if isinstance(r, dict):
-        return r.get("title", ""), r.get("url", "")
-    return r, r
-
-
-# ----------------------------
-# CORE LOGIC
-# ----------------------------
-def try_download(url, track, music_dir):
+def try_download(url, track, music_dir, score=0):
     try:
         path = download_audio(url, track, music_dir)
         print(f"[SAVED] {path}")
 
+        print("[ACOUSTID] Verifying...")
+        ok, fingerprint = acoustid_verify(track, path)
+
+        if ok is True:
+            print("[OK] Fingerprint match")
+
+        elif ok is None:
+            print("[WARN] Verification skipped")
+            if score < 0.9:
+                print("[REJECT]")
+                os.remove(path)
+                return False
+
+        else:
+            if score < 1.0:
+                print("[REJECT] Fingerprint mismatch")
+                os.remove(path)
+                return False
+            print("[WARN] Fingerprint mismatch but PERFECT match → accepting")
+
+        print("[TAG] Writing metadata...")
+        tag_file(path, track)
+
         upsert_track(
             track.get("spotify_id"),
             file=path,
-            url=url
+            url=url,
+            fingerprint=fingerprint,
+            status="ok"
         )
+
+        print("[SUCCESS]")
         return True
 
     except Exception as e:
-        print(f"[ERROR] Download failed: {e}")
+        print(f"[ERROR] {e}")
         return False
 
 
-# ----------------------------
-# DOWNLOAD TRACK
-# ----------------------------
-def download(track):
+def download(track, retry_failed=False):
     track_id = track.get("spotify_id")
-
     db_entry = get_track(track_id)
 
     config = load_config()
     music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
 
-    # ✅ 1. SKIP if already downloaded
-    if db_entry and db_entry.get("file") and os.path.exists(db_entry["file"]):
-        print(f"[SKIP] Already downloaded: {track.get('title')}")
-        return
-
-    # ✅ 2. TRY REUSE CACHED URL
-    if db_entry and db_entry.get("url"):
-        print(f"[REUSE] Cached URL")
-
-        success = try_download(db_entry["url"], track, music_dir)
-
-        if success:
+    if db_entry:
+        if db_entry.get("status") == "ok" and os.path.exists(db_entry.get("file", "")):
+            print(f"[SKIP] {track.get('title')}")
             return
-        else:
-            print("[FALLBACK] Cached URL failed, re-searching...")
 
-    # ----------------------------
-    # SEARCH FLOW
-    # ----------------------------
+        if db_entry.get("status") == "failed" and not retry_failed:
+            print(f"[SKIP FAILED] {track.get('title')}")
+            return
+
     query = f"{track.get('artist')} - {track.get('title')}"
     print(f"[SEARCH] {query}")
 
     results = search_youtube(query)
-    print(f"[RESULTS] {len(results)} found")
 
-    best = None
-    best_score = 0
-
+    candidates = []
     for r in results:
-        title, url = normalize_result(r)
+        title = r.get("title")
+        url = r.get("url")
         score = verify_match(track, title)
 
-        if score > best_score:
-            best = (title, url)
-            best_score = score
+        if score >= 0.75:
+            candidates.append((score, title, url))
 
-    print(f"[VERIFY] {best_score:.2f}")
-
-    if not best:
-        print("[FAIL] No match")
-        upsert_track(track_id, fingerprint=0)
+    if not candidates:
+        print("[FAIL] No high-quality matches")
+        upsert_track(track_id, status="failed")
         return
 
-    if best_score < 0.7:
-        print("[FAIL] Low confidence")
-        upsert_track(track_id, fingerprint=best_score)
-        return
+    candidates.sort(reverse=True, key=lambda x: x[0])
 
-    _, url = best
+    for i, (score, title, url) in enumerate(candidates[:3], 1):
+        print(f"[TRY {i}/3] {title} ({score:.2f})")
 
-    print(f"[DOWNLOAD] {url}")
+        if try_download(url, track, music_dir, score):
+            return
 
-    success = try_download(url, track, music_dir)
-
-    if success:
-        upsert_track(
-            track_id,
-            url=url,
-            fingerprint=best_score
-        )
-    else:
-        upsert_track(track_id, fingerprint=best_score)
+    print("[FAIL] All attempts failed")
+    upsert_track(track_id, status="failed")
 
 
-# ----------------------------
-# SYNC
-# ----------------------------
 def sync_tracks(limit=None):
     tracks = get_tracks(all_tracks=False)
 
@@ -177,29 +182,9 @@ def sync_tracks(limit=None):
     print("✅ Sync complete")
 
 
-# ----------------------------
-# REPAIR
-# ----------------------------
 def repair_library(workers=1, full=False, fs=False):
     config = load_config()
     music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
-
-    if fs:
-        print("🔍 Filesystem scan mode")
-
-        for root, _, files in os.walk(music_dir):
-            for f in files:
-                path = os.path.join(root, f)
-
-                if f.endswith(".part") or ".tmp" in f:
-                    print(f"[CLEAN] {path}")
-                    try:
-                        os.remove(path)
-                    except Exception as e:
-                        print("[ERROR]", e)
-
-        print("✅ Filesystem scan done")
-        return
 
     tracks = get_tracks(all_tracks=full)
 
@@ -207,12 +192,14 @@ def repair_library(workers=1, full=False, fs=False):
 
     for track in tracks:
         track_id = track.get("spotify_id")
+        db_entry = get_track(track_id)
 
         expected = build_output_template(track, music_dir).replace("%(ext)s", "mp3")
 
         if os.path.exists(expected):
-            print(f"[OK] {track.get('title')}")
-            upsert_track(track_id, file=expected)
+            print(f"[TAG FIX] {track.get('title')}")
+            tag_file(expected, track)
+            upsert_track(track_id, file=expected, status="ok")
             continue
 
         print(f"[REPAIR] {track.get('artist')} - {track.get('title')}")
