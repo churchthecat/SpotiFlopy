@@ -1,19 +1,25 @@
 import os
+import re
 import yt_dlp
 
 from spotiflopy.youtube import search_youtube
 from spotiflopy.verification import verify_match
 from spotiflopy.spotify import get_tracks
 from spotiflopy.config import load_config
+from spotiflopy.db import get_track, upsert_track
 
 
 # ----------------------------
-# PATH BUILDER
+# HELPERS
 # ----------------------------
+def safe(s):
+    return re.sub(r'[\\/:"*?<>|]+', '', (s or "")).strip()
+
+
 def build_output_template(track, music_dir):
-    artist = track.get("artist", "Unknown").strip()
-    album = track.get("album", "Unknown").strip()
-    title = track.get("title", "Unknown").strip()
+    artist = safe(track.get("artist", "Unknown"))
+    album = safe(track.get("album", "Unknown"))
+    title = safe(track.get("title", "Unknown"))
     track_num = str(track.get("track_number", 0)).zfill(2)
 
     return os.path.join(
@@ -29,8 +35,6 @@ def build_output_template(track, music_dir):
 # ----------------------------
 def download_audio(url, track, music_dir):
     outtmpl = build_output_template(track, music_dir)
-
-    print(f"[DEBUG] outtmpl = {outtmpl}")
 
     os.makedirs(os.path.dirname(outtmpl), exist_ok=True)
 
@@ -62,10 +66,56 @@ def normalize_result(r):
 
 
 # ----------------------------
+# CORE LOGIC
+# ----------------------------
+def try_download(url, track, music_dir):
+    try:
+        path = download_audio(url, track, music_dir)
+        print(f"[SAVED] {path}")
+
+        upsert_track(
+            track.get("spotify_id"),
+            file=path,
+            url=url
+        )
+        return True
+
+    except Exception as e:
+        print(f"[ERROR] Download failed: {e}")
+        return False
+
+
+# ----------------------------
 # DOWNLOAD TRACK
 # ----------------------------
 def download(track):
-    query = f"{track['artist']} - {track['title']}"
+    track_id = track.get("spotify_id")
+
+    db_entry = get_track(track_id)
+
+    config = load_config()
+    music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
+
+    # ✅ 1. SKIP if already downloaded
+    if db_entry and db_entry.get("file") and os.path.exists(db_entry["file"]):
+        print(f"[SKIP] Already downloaded: {track.get('title')}")
+        return
+
+    # ✅ 2. TRY REUSE CACHED URL
+    if db_entry and db_entry.get("url"):
+        print(f"[REUSE] Cached URL")
+
+        success = try_download(db_entry["url"], track, music_dir)
+
+        if success:
+            return
+        else:
+            print("[FALLBACK] Cached URL failed, re-searching...")
+
+    # ----------------------------
+    # SEARCH FLOW
+    # ----------------------------
+    query = f"{track.get('artist')} - {track.get('title')}"
     print(f"[SEARCH] {query}")
 
     results = search_youtube(query)
@@ -85,23 +135,29 @@ def download(track):
     print(f"[VERIFY] {best_score:.2f}")
 
     if not best:
-        print("[SKIP] No match")
+        print("[FAIL] No match")
+        upsert_track(track_id, fingerprint=0)
         return
 
     if best_score < 0.7:
-        print("[SKIP] Low confidence")
+        print("[FAIL] Low confidence")
+        upsert_track(track_id, fingerprint=best_score)
         return
 
-    title, url = best
+    _, url = best
 
     print(f"[DOWNLOAD] {url}")
 
-    config = load_config()
-    music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
+    success = try_download(url, track, music_dir)
 
-    path = download_audio(url, track, music_dir)
-
-    print(f"[SAVED] {path}")
+    if success:
+        upsert_track(
+            track_id,
+            url=url,
+            fingerprint=best_score
+        )
+    else:
+        upsert_track(track_id, fingerprint=best_score)
 
 
 # ----------------------------
@@ -128,9 +184,6 @@ def repair_library(workers=1, full=False, fs=False):
     config = load_config()
     music_dir = os.path.expanduser(config.get("music_dir", "~/Music"))
 
-    # ----------------------------
-    # FILESYSTEM MODE
-    # ----------------------------
     if fs:
         print("🔍 Filesystem scan mode")
 
@@ -148,23 +201,21 @@ def repair_library(workers=1, full=False, fs=False):
         print("✅ Filesystem scan done")
         return
 
-    # ----------------------------
-    # SPOTIFY MODE
-    # ----------------------------
     tracks = get_tracks(all_tracks=full)
 
     print(f"🔧 Repairing {len(tracks)} tracks...")
 
     for track in tracks:
-        title = track.get("title")
+        track_id = track.get("spotify_id")
 
         expected = build_output_template(track, music_dir).replace("%(ext)s", "mp3")
 
         if os.path.exists(expected):
-            print(f"[OK] {title}")
+            print(f"[OK] {track.get('title')}")
+            upsert_track(track_id, file=expected)
             continue
 
-        print(f"[REPAIR] {track.get('artist')} - {title}")
+        print(f"[REPAIR] {track.get('artist')} - {track.get('title')}")
         download(track)
 
     print("✅ Repair done")

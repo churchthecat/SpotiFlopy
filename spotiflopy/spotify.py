@@ -40,24 +40,6 @@ def get_spotify():
     )
 
 
-    results = []
-    offset = 0
-
-    while True:
-        response = sp.current_user_saved_tracks(limit=limit, offset=offset)
-        items = response.get("items", [])
-
-        if not items:
-            break
-
-        results.extend(items)
-
-        if not all_tracks:
-            break
-
-        offset += limit
-
-    return results
 def get_tracks(limit=50, all_tracks=True):
     sp = get_spotify()
 
@@ -72,13 +54,19 @@ def get_tracks(limit=50, all_tracks=True):
             break
 
         for item in items:
-            track = item.get("track", {})
+            t = item.get("track", {})
 
             results.append({
-                "title": track.get("name"),
-                "artist": ", ".join(a["name"] for a in track.get("artists", [])),
-                "album": track.get("album", {}).get("name"),
-                "spotify_id": track.get("id"),
+                "title": t.get("name"),
+                "artist": ", ".join(a["name"] for a in t.get("artists", [])),
+                "album": t.get("album", {}).get("name"),
+                "spotify_id": t.get("id"),
+                "track_number": t.get("track_number"),
+                "cover_url": (
+                    t.get("album", {})
+                     .get("images", [{}])[0]
+                     .get("url")
+                ),
             })
 
         if not all_tracks:

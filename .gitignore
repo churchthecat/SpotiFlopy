@@ -38,3 +38,6 @@ cache/
 
 # user config
 .spotiflopy_config.json
+
+cookies.txt
+cookies
